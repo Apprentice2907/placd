@@ -1,0 +1,57 @@
+{
+    "name": "Your Full Name",
+    "email": "your.email@example.com",
+    "phone": "+91-XXXXXXXXXX",
+    "location": "City, India",
+    "linkedin": "https://linkedin.com/in/your-profile",
+    "github": "https://github.com/your-username",
+    "portfolio": "https://your-portfolio.com",
+
+    "summary": "Aspiring AI/ML engineer and full-stack developer with hands-on experience in Python, Flask/Django, and machine learning. Passionate about building intelligent automation systems that solve real-world problems.",
+
+    "education": [
+        {
+            "degree": "B.Tech in Computer Science",
+            "institution": "Your University",
+            "year": "2024-2028",
+            "gpa": "8.5/10"
+        }
+    ],
+
+    "skills": {
+        "languages": ["Python", "JavaScript", "SQL", "HTML/CSS"],
+        "frameworks": ["Flask", "Django", "React", "Next.js"],
+        "ai_ml": ["Machine Learning", "NLP", "Gemini API", "OpenAI API"],
+        "databases": ["SQLite", "PostgreSQL", "MongoDB"],
+        "tools": ["Git", "Docker", "VS Code", "Playwright"],
+        "soft_skills": ["Problem Solving", "Communication", "Team Collaboration"]
+    },
+
+    "projects": [
+        {
+            "name": "Placd",
+            "description": "AI-powered job search automation tool that scrapes listings, matches skills, and generates tailored resumes",
+            "tech_stack": ["Python", "SQLite", "BeautifulSoup", "Gemini API", "SerpAPI"],
+            "highlights": [
+                "Automated scraping from 4+ job platforms",
+                "FTS5-powered full-text search across listings",
+                "AI-driven resume tailoring with 85%+ ATS scores"
+            ]
+        }
+    ],
+
+    "experience": [
+        {
+            "title": "Your Role",
+            "company": "Company Name",
+            "duration": "Month Year – Present",
+            "highlights": [
+                "Describe what you built or achieved",
+                "Use metrics and impact where possible"
+            ]
+        }
+    ],
+
+    "certifications": [],
+    "achievements": []
+}

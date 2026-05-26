@@ -1,0 +1,13 @@
+requests
+beautifulsoup4
+playwright
+pandas
+python-dotenv
+google-generativeai
+openai
+gspread
+google-auth
+reportlab
+python-docx
+rich
+sqlite-utils

@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: placd-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: placd
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d placd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: placd-redis
+    restart: always
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: placd-api
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: placd-celery-worker
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
+      - REDIS_URL=redis://redis:6379/0
+    command: ["celery", "-A", "workers.crawlers", "worker", "--concurrency=8", "--queues=default,crawl,enrichment", "--loglevel=info"]
+    depends_on:
+      - redis
+      - postgres
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: placd-celery-beat
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
+      - REDIS_URL=redis://redis:6379/0
+    command: ["celery", "-A", "workers.crawlers", "beat", "--loglevel=info"]
+    depends_on:
+      - redis
+      - postgres
+
+  playwright-worker:
+    build:
+      context: ./backend
+      dockerfile: playwright.Dockerfile
+    container_name: placd-playwright-worker
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
+      - REDIS_URL=redis://redis:6379/0
+      - PLAYWRIGHT_ENABLED=true
+    depends_on:
+      - redis
+      - postgres
+
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: placd-flower
+    restart: always
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    command: ["celery", "-A", "workers.crawlers", "flower", "--port=5555"]
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=/api
+    container_name: placd-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:

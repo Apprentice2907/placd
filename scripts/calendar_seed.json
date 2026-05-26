@@ -1,0 +1,102 @@
+[
+  {
+    "company": "Google",
+    "category": "faang",
+    "event_date": "2026-08-15",
+    "window_type": "opens",
+    "hiring_cycle": "new_grad_2027",
+    "source_url": "https://careers.google.com/",
+    "notes": "Historically opens in August for SWE New Grad",
+    "verified": true
+  },
+  {
+    "company": "Google",
+    "category": "faang",
+    "event_date": "2026-09-01",
+    "window_type": "opens",
+    "hiring_cycle": "intern_summer_2027",
+    "source_url": "https://careers.google.com/students/",
+    "notes": "Historically opens in September for STEP and SWE internships",
+    "verified": true
+  },
+  {
+    "company": "Jane Street",
+    "category": "hft",
+    "event_date": "2026-08-01",
+    "window_type": "opens",
+    "hiring_cycle": "intern_summer_2027",
+    "source_url": "https://www.janestreet.com/join-jane-street/",
+    "notes": "Historically opens early August",
+    "verified": true
+  },
+  {
+    "company": "Citadel",
+    "category": "hft",
+    "event_date": "2026-07-15",
+    "window_type": "opens",
+    "hiring_cycle": "intern_summer_2027",
+    "source_url": "https://www.citadel.com/careers/",
+    "notes": "Historically opens in mid-July",
+    "verified": true
+  },
+  {
+    "company": "Amazon",
+    "category": "faang",
+    "event_date": "2026-08-20",
+    "window_type": "opens",
+    "hiring_cycle": "new_grad_2027",
+    "source_url": "https://www.amazon.jobs/en/teams/student-programs",
+    "notes": "Historically opens August-September",
+    "verified": true
+  },
+  {
+    "company": "Apple",
+    "category": "faang",
+    "event_date": "2026-08-01",
+    "window_type": "opens",
+    "hiring_cycle": "intern_summer_2027",
+    "source_url": "https://www.apple.com/jobs/us/students.html",
+    "notes": "Rolling basis starting August",
+    "verified": true
+  },
+  {
+    "company": "Microsoft",
+    "category": "faang",
+    "event_date": "2026-08-15",
+    "window_type": "opens",
+    "hiring_cycle": "intern_summer_2027",
+    "source_url": "https://careers.microsoft.com/students/us/en/us-internship",
+    "notes": "SWE internships historically open mid-August",
+    "verified": true
+  },
+  {
+    "company": "Two Sigma",
+    "category": "hft",
+    "event_date": "2026-12-01",
+    "window_type": "opens",
+    "hiring_cycle": "intern_summer_2027",
+    "source_url": "https://www.twosigma.com/careers/students/",
+    "notes": "Historically opens later in December",
+    "verified": true
+  },
+  {
+    "company": "Anthropic",
+    "category": "ai_lab",
+    "event_date": "2026-06-01",
+    "window_type": "opens",
+    "hiring_cycle": "rolling",
+    "source_url": "https://www.anthropic.com/careers",
+    "notes": "Rolling openings, safety researchers in demand",
+    "verified": true
+  },
+  {
+    "company": "OpenAI",
+    "category": "ai_lab",
+    "event_date": "2026-06-01",
+    "window_type": "opens",
+    "hiring_cycle": "rolling",
+    "source_url": "https://openai.com/careers",
+    "notes": "Residency programs and full-time open ad-hoc",
+    "verified": true
+  }
+]

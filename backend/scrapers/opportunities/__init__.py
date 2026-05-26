@@ -1,0 +1,1 @@
+# Initialize opportunities module
