@@ -1,12 +1,10 @@
 import os
 import json
 import re
-import asyncio
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 import structlog
-from pydantic import BaseModel, Field
 from celery import shared_task
 from sqlalchemy import text
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
@@ -16,7 +14,8 @@ from google.generativeai.types import generation_types
 
 # Reuse DB connection and Redis
 from db.connection import AsyncSessionLocal
-from scrapers.ats.base import redis_client, JobData
+from utils.redis import redis_client
+from utils.async_utils import run_async
 
 logger = structlog.get_logger(__name__)
 
@@ -25,24 +24,39 @@ genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
 DAILY_TOKEN_BUDGET = 1_000_000
 
-class EnrichmentResult(BaseModel):
-    job_type: str = Field(default="")
-    experience_level: str = Field(default="")
-    is_remote: bool = Field(default=False)
-    categories: List[str] = Field(default_factory=list)
-    skills: List[str] = Field(default_factory=list)
-    salary_mentioned: bool = Field(default=False)
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    salary_currency: Optional[str] = None
+ENRICHMENT_PROMPT = """
+You are a job data extraction API. Extract structured data from these job postings.
+Respond ONLY with a valid JSON array of objects. No markdown, no explanation, no preamble.
 
+Job Postings:
+{job_postings_json}
+
+For each job posting, extract and return this exact JSON structure in an array (preserve the exact order of the input):
+[
+  {{
+    "job_id": "...",              // Use the id provided in the input
+    "skills_required": [],        // list of specific technical skills mentioned (max 20)
+    "skills_preferred": [],       // nice-to-have skills (max 10)
+    "experience_min_years": null, // integer or null
+    "experience_max_years": null, // integer or null
+    "seniority_level": null,      // "intern"|"junior"|"mid"|"senior"|"staff"|"lead"|"manager"|"director"|null
+    "job_function": null,         // "engineering"|"data"|"product"|"design"|"devops"|"mobile"|"security"|"ml"|"other"
+    "tech_stack": [],             // primary technologies/frameworks used
+    "visa_sponsorship": null,     // true|false|null (null = not mentioned)
+    "equity_offered": null,       // true|false|null
+    "remote_type": null,          // "fully_remote"|"hybrid"|"onsite"|null
+    "salary_mentioned": false,    // boolean
+    "languages_required": [],     // human languages if mentioned (e.g. ["English", "Hindi"])
+    "role_summary": ""            // 2 sentence max summary of the role
+  }}
+]
+"""
 
 async def track_tokens_used(tokens: int):
     """Track daily tokens in Redis."""
     today = datetime.utcnow().strftime("%Y-%m-%d")
     key = f"daily_tokens:{today}"
     
-    # Increment and set expiry for 48 hours to be safe
     try:
         await redis_client.incrby(key, tokens)
         await redis_client.expire(key, 172800)
@@ -59,97 +73,78 @@ async def get_daily_tokens_used() -> int:
     except Exception:
         return 0
 
-def _parse_gemini_json(response_text: str) -> dict:
+def _parse_gemini_json(response_text: str) -> list:
     """Extract JSON from Gemini response handling markdown blocks."""
     text = response_text.strip()
     if text.startswith("```"):
-        # Extract between markdown ticks
         match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
         if match:
             text = match.group(1)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error("gemini_json_decode_error", text=response_text, error=str(e))
-        return {}
+    return json.loads(text)
 
 def should_retry_gemini(exception: Exception) -> bool:
     """Retry on rate limits (429) or Internal server errors (500, 503)."""
     if isinstance(exception, generation_types.StopCandidateException):
         return False
-    # If it's an API error, it might be embedded in the Exception string
     error_str = str(exception)
     if "429" in error_str or "503" in error_str or "500" in error_str or "Quota" in error_str:
         return True
     return False
 
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=2, max=30),
-    retry=retry_if_exception_type(Exception),
-    reraise=True
-)
-def classify_job(job: JobData) -> EnrichmentResult:
-    """Classify a job using Gemini 2.5 Flash."""
-    model = genai.GenerativeModel("gemini-2.5-flash")
+def extract_jobs_batch(jobs: List[Dict[str, Any]]) -> tuple[List[Dict], float]:
+    """Extracts data for up to 10 jobs using Gemini Flash Lite. Returns list of parsed dicts and cost."""
+    model = genai.GenerativeModel("gemini-2.0-flash-lite")
     
-    system_prompt = "You are a job classification engine. Respond ONLY with valid JSON. No markdown, no explanation."
+    # Prepare input payload
+    job_inputs = []
+    for job in jobs:
+        desc = (job.get("description") or "")[:3000]
+        job_inputs.append({
+            "id": job.get("id"),
+            "title": job.get("title", ""),
+            "company": job.get("company_name", ""),
+            "location": job.get("location", ""),
+            "description": desc
+        })
+        
+    prompt = ENRICHMENT_PROMPT.format(job_postings_json=json.dumps(job_inputs, indent=2))
+    total_cost = 0.0
     
-    user_prompt = f"""Classify this job posting:
-Title: {job.title}
-Company: {job.company_name}
-Location: {job.location}
-Description (first 500 chars): {job.description[:500]}
-
-Return JSON:
-{{
-"job_type": "fulltime|internship|contract|research|parttime",
-"experience_level": "entry|mid|senior|staff|lead|intern",
-"is_remote": true|false,
-"categories": ["array", "of", "applicable", "tags"],
-"skills": ["python", "react", "sql", ...],
-"salary_mentioned": true|false,
-"salary_min": null_or_integer,
-"salary_max": null_or_integer,
-"salary_currency": "USD|INR|GBP|EUR|null"
-}}
-
-Category options (pick all that apply):
-faang, big_tech, startup, unicorn, hft, quant, ai_lab, research, new_grad, remote_first, india, internship, contract, fintech, healthcare, edtech, deeptech
-"""
-
-    try:
-        # Since the Google AI python SDK can be synchronous, we run it normally.
-        response = model.generate_content(
-            [{"role": "user", "parts": [system_prompt + "\n\n" + user_prompt]}],
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json"
+    for attempt in range(2):
+        try:
+            response = model.generate_content(
+                [{"role": "user", "parts": [prompt]}],
+                generation_config=genai.types.GenerationConfig(
+                    response_mime_type="application/json"
+                )
             )
-        )
-        
-        # Track tokens
-        usage = response.usage_metadata
-        if usage:
-            # Using asyncio.run inside synchronous wrapper is dangerous if event loop is running.
-            # But celery tasks run synchronously, so we can dispatch the tracking to the background if needed,
-            # or just call it directly if we ensure we handle the event loop.
+            
+            usage = response.usage_metadata
+            if usage:
+                run_async(track_tokens_used(usage.total_token_count))
+                # Gemini 2.0 Flash Lite cost estimate
+                total_cost = (usage.prompt_token_count / 1_000_000) * 0.075 + (usage.candidates_token_count / 1_000_000) * 0.30
+            
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(track_tokens_used(usage.total_token_count))
+                parsed_data = _parse_gemini_json(response.text)
+                if isinstance(parsed_data, list):
+                    return parsed_data, total_cost
+            except json.JSONDecodeError as e:
+                if attempt == 0:
+                    logger.warning("gemini_json_decode_error, retrying", error=str(e))
+                    prompt = "Your previous response was not valid JSON. Return ONLY the JSON array, nothing else."
+                    continue
                 else:
-                    loop.run_until_complete(track_tokens_used(usage.total_token_count))
-            except RuntimeError:
-                asyncio.run(track_tokens_used(usage.total_token_count))
-        
-        parsed_data = _parse_gemini_json(response.text)
-        return EnrichmentResult(**parsed_data)
-        
-    except Exception as e:
-        if should_retry_gemini(e):
-            raise e
-        logger.error("classify_job_failed", error=str(e), job_id=job.external_id)
-        return EnrichmentResult()
+                    logger.error("gemini_json_decode_error_final", error=str(e))
+                    return [], total_cost
+                    
+        except Exception as e:
+            if should_retry_gemini(e):
+                raise e
+            logger.error("extract_jobs_batch_failed", error=str(e))
+            return [], total_cost
+            
+    return [], total_cost
 
 @retry(
     stop=stop_after_attempt(5),
@@ -157,163 +152,24 @@ faang, big_tech, startup, unicorn, hft, quant, ai_lab, research, new_grad, remot
     retry=retry_if_exception_type(Exception),
     reraise=True
 )
-def generate_resume_keywords(job: JobData) -> List[str]:
-    """Extract ATS keywords using Gemini 2.5 Flash."""
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    
-    system_prompt = "Extract the 15 most important ATS keywords from this job description for resume optimization. Return ONLY a JSON array of strings. No explanation."
-    user_prompt = f"{job.description[:2000]}"
-    
-    try:
-        response = model.generate_content(
-            [{"role": "user", "parts": [system_prompt + "\n\n" + user_prompt]}],
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json"
-            )
-        )
-        
-        usage = response.usage_metadata
-        if usage:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(track_tokens_used(usage.total_token_count))
-                else:
-                    loop.run_until_complete(track_tokens_used(usage.total_token_count))
-            except RuntimeError:
-                asyncio.run(track_tokens_used(usage.total_token_count))
-                
-        keywords = _parse_gemini_json(response.text)
-        if isinstance(keywords, list):
-            return keywords
-        return []
-        
-    except Exception as e:
-        if should_retry_gemini(e):
-            raise e
-        logger.error("generate_resume_keywords_failed", error=str(e), job_id=job.external_id)
-        return []
-
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=2, max=30),
-    retry=retry_if_exception_type(Exception),
-    reraise=True
-)
-def compute_embedding(text: str) -> List[float]:
-    """Compute embeddings using text-embedding-004."""
+def compute_embeddings_batch(texts: List[str]) -> List[List[float]]:
+    """Compute embeddings using models/embedding-001."""
     try:
         result = genai.embed_content(
-            model="models/text-embedding-004",
-            content=text,
+            model="models/embedding-001",
+            content=texts,
             task_type="retrieval_document"
         )
-        # text-embedding-004 returns 768 dimensions by default.
-        # It allows output_dimensionality parameter for lower dimensions, but not higher.
-        # If the DB expects 1536 (OpenAI size), we might have a schema mismatch.
-        # We will return the embedding as provided by the model.
-        embedding = result.get('embedding', [])
-        return embedding
+        embeddings = result.get('embedding', [])
+        # If a single string was passed accidentally, wrap it
+        if embeddings and not isinstance(embeddings[0], list):
+            embeddings = [embeddings]
+        return embeddings
     except Exception as e:
         if should_retry_gemini(e):
             raise e
         logger.error("compute_embedding_failed", error=str(e))
-        return []
-
-async def _enrich_job_async(job_id: str):
-    logger.info("starting_enrich_job", job_id=job_id)
-    
-    async with AsyncSessionLocal() as session:
-        # Load job
-        result = await session.execute(
-            text("SELECT * FROM jobs WHERE id = :id"),
-            {"id": job_id}
-        )
-        row = result.fetchone()
-        if not row:
-            logger.error("job_not_found", job_id=job_id)
-            return
-            
-        # Map DB row to JobData
-        job = JobData(
-            external_id=row.external_id or str(row.id),
-            title=row.title or "",
-            description=row.description or "",
-            apply_url=row.apply_url or "",
-            source=row.source or "",
-            job_type=row.job_type or "",
-            location=row.location or "",
-            is_remote=row.is_remote or False,
-            company_slug="", # Not strictly needed for enrichment logic below
-            company_name=row.company_name or "", # Assuming company_name exists, else use slug
-            raw_data={},
-            scraped_at=datetime.utcnow()
-        )
-        
-        # 1. Classify
-        classification = classify_job(job)
-        
-        # 2. Keywords
-        keywords = generate_resume_keywords(job)
-        
-        # 3. Embedding
-        embed_text = f"{job.title} at {job.company_name}. {job.description[:500]}"
-        embedding = compute_embedding(embed_text)
-        
-        # Update jobs table
-        # Format lists for PostgreSQL arrays/JSON
-        categories_json = json.dumps(classification.categories)
-        skills_json = json.dumps(classification.skills)
-        # For pgvector, string representation: '[0.1, 0.2, ...]'
-        embedding_str = f"[{','.join(map(str, embedding))}]" if embedding else None
-        
-        await session.execute(
-            text("""
-                UPDATE jobs 
-                SET job_type = COALESCE(NULLIF(:job_type, ''), job_type),
-                    experience_level = :experience_level,
-                    is_remote = :is_remote,
-                    tags = :tags::jsonb,
-                    skills = :skills::jsonb,
-                    description_embedding = :embedding::vector,
-                    is_enriched = 1,
-                    enrichment_timestamp = NOW()
-                WHERE id = :id
-            """),
-            {
-                "id": job_id,
-                "job_type": classification.job_type,
-                "experience_level": classification.experience_level,
-                "is_remote": classification.is_remote,
-                "tags": categories_json,
-                "skills": skills_json,
-                "embedding": embedding_str
-            }
-        )
-        
-        # Insert keywords
-        if keywords:
-            # Delete old keywords just in case
-            await session.execute(text("DELETE FROM job_keywords WHERE job_id = :id"), {"id": job_id})
-            
-            # Simple weighting: first is 1.0, decreasing
-            for i, kw in enumerate(keywords):
-                weight = max(0.1, 1.0 - (i * 0.05))
-                await session.execute(
-                    text("""
-                        INSERT INTO job_keywords (job_id, keyword, weight)
-                        VALUES (:job_id, :keyword, :weight)
-                    """),
-                    {"job_id": job_id, "keyword": kw, "weight": weight}
-                )
-                
-        await session.commit()
-        logger.info("enrich_job_complete", job_id=job_id)
-
-@shared_task(name="enrich_job_task")
-def enrich_job_task(job_id: str):
-    """Celery task to run enrichment pipeline on a single job."""
-    asyncio.run(_enrich_job_async(job_id))
+        return [[] for _ in texts]
 
 async def _batch_enrich_async():
     logger.info("starting_batch_enrich")
@@ -325,27 +181,90 @@ async def _batch_enrich_async():
         return
         
     async with AsyncSessionLocal() as session:
+        # Fetch 50 jobs at a time to maximize Celery beat efficiency
         result = await session.execute(
             text("""
-                SELECT id FROM jobs 
-                WHERE tags IS NULL 
-                  AND created_at > NOW() - INTERVAL '1 day' 
-                LIMIT 200
+                SELECT jobs.id, jobs.title, jobs.location, jobs.description, companies.name AS company_name 
+                FROM jobs 
+                LEFT JOIN companies ON jobs.company_id = companies.id
+                WHERE jobs.status = 'active'
+                  AND (jobs.skills_raw IS NULL OR jobs.enriched_at < NOW() - INTERVAL '7 days')
+                ORDER BY jobs.created_at DESC
+                LIMIT 50
             """)
         )
         jobs = result.fetchall()
         
-    if not jobs:
-        logger.info("no_jobs_to_enrich")
-        return
+        if not jobs:
+            logger.info("no_jobs_to_enrich")
+            return
+            
+        logger.info("enriching_jobs_total", count=len(jobs))
         
-    logger.info("dispatching_enrich_tasks", count=len(jobs))
-    for index, row in enumerate(jobs):
-        # Stagger by 0.5 seconds
-        delay = index * 0.5
-        enrich_job_task.apply_async(args=[str(row.id)], countdown=delay)
+        # Process in chunks of 10
+        chunk_size = 10
+        for i in range(0, len(jobs), chunk_size):
+            chunk = jobs[i:i + chunk_size]
+            
+            job_dicts = []
+            for r in chunk:
+                job_dicts.append({
+                    "id": str(r.id),
+                    "title": r.title or "",
+                    "company_name": r.company_name or "",
+                    "location": r.location or "",
+                    "description": r.description or ""
+                })
+                
+            # 1. Extract structural JSON using Gemini
+            parsed_results, chunk_cost = extract_jobs_batch(job_dicts)
+            
+            # 2. Compute Embeddings
+            embed_texts = [f"{j['title']} at {j['company_name']}. {j['description'][:500]}" for j in job_dicts]
+            embeddings = compute_embeddings_batch(embed_texts)
+            
+            cost_per_job = chunk_cost / len(chunk) if chunk else 0.0
+            
+            # Update DB
+            for idx, job in enumerate(job_dicts):
+                job_id = job["id"]
+                
+                # Find corresponding parsed result by job_id
+                parsed = next((pr for pr in parsed_results if pr.get("job_id") == job_id), None)
+                
+                embedding = embeddings[idx] if idx < len(embeddings) else []
+                embedding_str = f"[{','.join(map(str, embedding))}]" if embedding else None
+                
+                remote_type = parsed.get("remote_type") if parsed else None
+                is_remote = True if remote_type == "fully_remote" else None
+                
+                experience_level = parsed.get("seniority_level", "") if parsed else ""
+                
+                await session.execute(
+                    text("""
+                        UPDATE jobs 
+                        SET skills_raw = CAST(:skills_raw AS JSONB),
+                            enriched_at = NOW(),
+                            enrichment_cost_usd = :cost,
+                            is_remote = COALESCE(:is_remote, is_remote),
+                            experience_level = COALESCE(NULLIF(:experience_level, ''), experience_level),
+                            description_embedding = COALESCE(CAST(:embedding AS vector), description_embedding)
+                        WHERE id = :id
+                    """),
+                    {
+                        "id": job_id,
+                        "skills_raw": json.dumps(parsed) if parsed else None,
+                        "cost": cost_per_job,
+                        "is_remote": is_remote,
+                        "experience_level": experience_level,
+                        "embedding": embedding_str
+                    }
+                )
+                
+            await session.commit()
+            logger.info("batch_enrich_chunk_complete", chunk_size=len(chunk), cost=chunk_cost)
 
 @shared_task(name="batch_enrich_task")
 def batch_enrich_task():
     """Celery beat task to periodically enrich raw jobs."""
-    asyncio.run(_batch_enrich_async())
+    run_async(_batch_enrich_async())

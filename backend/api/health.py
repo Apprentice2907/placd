@@ -2,7 +2,7 @@ import asyncio
 from fastapi import APIRouter, Response
 from sqlalchemy import text
 from db.connection import AsyncSessionLocal
-from scrapers.ats.base import redis_client
+from utils.redis import redis_client
 from celery.app.control import Inspect
 from workers.crawlers import celery as celery_app # Adjust this if celery app is instantiated elsewhere
 

@@ -1,37 +1,36 @@
-from datetime import datetime
-from typing import List
-import httpx
-import structlog
 import asyncio
+from datetime import datetime
+from typing import List, Dict, Any
 
-from .base import BaseCrawler, JobData
+from scrapers.shared.base_adapter import UnifiedAdapter
 
-logger = structlog.get_logger(__name__)
+class LeverCrawler(UnifiedAdapter):
+    source = "lever"
+    rpm = 60
+    api_domain = "api.lever.co"
 
-class LeverCrawler(BaseCrawler):
-    
-    async def crawl_company(self, slug: str) -> List[JobData]:
+    async def fetch_jobs(self) -> List[Dict[str, Any]]:
         """Fetch all jobs for a Lever company slug."""
         jobs_list = []
         urls_to_try = [
-            f"https://api.lever.co/v0/postings/{slug}?mode=json",
-            f"https://jobs.lever.co/{slug}/json"
+            f"https://api.lever.co/v0/postings/{self.company}?mode=json",
+            f"https://jobs.lever.co/{self.company}/json"
         ]
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with self.get_client() as client:
             raw_jobs = None
             for url in urls_to_try:
-                await self.check_rate_limit("api.lever.co", max_requests=10, window_seconds=1)
                 try:
-                    response = await client.get(url)
-                    response.raise_for_status()
+                    response = await self._fetch_with_retry(client, url)
                     raw_jobs = response.json()
                     break # Success
                 except Exception as e:
-                    logger.debug("lever_url_failed", url=url, error=str(e))
+                    import logging
+                    logging.getLogger(__name__).debug(f"lever_url_failed url={url} error={e}")
             
             if not raw_jobs:
-                logger.error("lever_crawl_error", slug=slug, error="All endpoints failed")
+                import logging
+                logging.getLogger(__name__).error(f"lever_crawl_error slug={self.company} error='All endpoints failed'")
                 return []
                 
             for rj in raw_jobs:
@@ -43,20 +42,24 @@ class LeverCrawler(BaseCrawler):
                 is_remote = "remote" in location.lower() or "remote" in title_lower
                 job_type = "internship" if "intern" in title_lower else "fulltime"
                 
-                job_data = JobData(
-                    external_id=str(rj.get("id")),
-                    title=title,
-                    description=rj.get("descriptionPlain", ""),
-                    apply_url=rj.get("hostedUrl", ""),
-                    source="lever",
-                    job_type=job_type,
-                    location=location,
-                    is_remote=is_remote,
-                    company_slug=slug,
-                    company_name=slug.title(),  # Lever JSON often doesn't contain company name at top level
-                    raw_data=rj,
-                    scraped_at=datetime.utcnow()
-                )
-                jobs_list.append(job_data)
+                jobs_list.append({
+                    "title": title,
+                    "company": self.company.title(),
+                    "location": location,
+                    "description": rj.get("descriptionPlain", ""),
+                    "url": rj.get("hostedUrl", ""),
+                    "apply_url": rj.get("hostedUrl", ""),
+                    "source": self.source,
+                    "job_type": job_type,
+                    "is_remote": is_remote,
+                    "raw_data": rj
+                })
                     
         return jobs_list
+
+if __name__ == "__main__":
+    adapter = LeverCrawler({"name": "netflix"})
+    jobs = asyncio.run(adapter.run())
+    print(f"Fetched {len(jobs)} jobs")
+    if jobs:
+        print(jobs[0])

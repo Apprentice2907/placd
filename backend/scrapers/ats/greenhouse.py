@@ -1,30 +1,27 @@
 import asyncio
 from datetime import datetime
-from typing import List, AsyncGenerator
-import httpx
-import structlog
+from typing import List, Dict, Any
 from urllib.parse import urlencode
 
-from .base import BaseCrawler, JobData
+from scrapers.shared.base_adapter import UnifiedAdapter
 
-logger = structlog.get_logger(__name__)
+class GreenhouseCrawler(UnifiedAdapter):
+    source = "greenhouse"
+    rpm = 60
+    api_domain = "boards-api.greenhouse.io"
 
-class GreenhouseCrawler(BaseCrawler):
-    
-    async def crawl_company(self, slug: str) -> List[JobData]:
+    async def fetch_jobs(self) -> List[Dict[str, Any]]:
         """Fetch all jobs for a Greenhouse company slug."""
         jobs_list = []
         page = 1
         has_more = True
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with self.get_client() as client:
             while has_more:
-                await self.check_rate_limit("boards-api.greenhouse.io", max_requests=10, window_seconds=1)
+                url = f"https://boards-api.greenhouse.io/v1/boards/{self.company}/jobs?content=true&page={page}"
                 
-                url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true&page={page}"
                 try:
-                    response = await client.get(url)
-                    response.raise_for_status()
+                    response = await self._fetch_with_retry(client, url)
                     data = response.json()
                     
                     raw_jobs = data.get("jobs", [])
@@ -39,21 +36,18 @@ class GreenhouseCrawler(BaseCrawler):
                         is_remote = "remote" in location.lower() or "remote" in title_lower
                         job_type = "internship" if "intern" in title_lower else "fulltime"
                         
-                        job_data = JobData(
-                            external_id=str(rj.get("id")),
-                            title=title,
-                            description=rj.get("content", ""),
-                            apply_url=rj.get("absolute_url", ""),
-                            source="greenhouse",
-                            job_type=job_type,
-                            location=location,
-                            is_remote=is_remote,
-                            company_slug=slug,
-                            company_name=data.get("name", slug),
-                            raw_data=rj,
-                            scraped_at=datetime.utcnow()
-                        )
-                        jobs_list.append(job_data)
+                        jobs_list.append({
+                            "title": title,
+                            "company": data.get("name", self.company),
+                            "location": location,
+                            "description": rj.get("content", ""),
+                            "url": rj.get("absolute_url", ""),
+                            "apply_url": rj.get("absolute_url", ""),
+                            "source": self.source,
+                            "job_type": job_type,
+                            "is_remote": is_remote,
+                            "raw_data": rj
+                        })
                         
                     if len(raw_jobs) == 500:
                         page += 1
@@ -61,30 +55,17 @@ class GreenhouseCrawler(BaseCrawler):
                         has_more = False
                         
                 except Exception as e:
-                    logger.error("greenhouse_crawl_error", slug=slug, page=page, error=str(e))
+                    import logging
+                    logging.getLogger(__name__).error(f"greenhouse_crawl_error slug={self.company} page={page} error={e}")
                     break
                     
         return jobs_list
-        
-    async def crawl_all(self, company_slugs: List[str]) -> AsyncGenerator[JobData, None]:
-        """Crawl multiple companies with concurrency limits."""
-        semaphore = asyncio.Semaphore(20)
-        count = 0
-        
-        async def _crawl(slug: str):
-            async with semaphore:
-                try:
-                    return await self.crawl_company(slug)
-                except Exception as e:
-                    logger.error("greenhouse_crawl_all_error", slug=slug, error=str(e))
-                    return []
 
-        # We yield as soon as a company finishes
-        for coro in asyncio.as_completed([_crawl(slug) for slug in company_slugs]):
-            company_jobs = await coro
-            for job in company_jobs:
-                yield job
-                
-            count += 1
-            if count % 100 == 0:
-                logger.info("greenhouse_progress", companies_processed=count, total=len(company_slugs))
+if __name__ == "__main__":
+    adapter = GreenhouseCrawler({"name": "stripe", "board_token": "stripe"})
+    # Need to override company with the slug from the config for consistency
+    adapter.company = adapter.company_config.get("name", "stripe")
+    jobs = asyncio.run(adapter.run())
+    print(f"Fetched {len(jobs)} jobs")
+    if jobs:
+        print(jobs[0])

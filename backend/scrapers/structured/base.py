@@ -8,7 +8,7 @@ import httpx
 import structlog
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, RetryCallState
 
-from scrapers.ats.base import redis_client
+from utils.redis import redis_client
 
 logger = structlog.get_logger(__name__)
 

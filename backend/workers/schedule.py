@@ -26,4 +26,8 @@ beat_schedule = {
         'task': 'refresh_calendar_from_jobs',
         'schedule': crontab(hour=2, minute=0),      # Nightly at 02:00 UTC
     },
+    'crawl-new-adapters-daily': {
+        'task': 'crawl_all_new_adapters_task',
+        'schedule': crontab(hour=7, minute=0),       # Daily at 07:00 UTC
+    },
 }

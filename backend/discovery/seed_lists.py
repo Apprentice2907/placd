@@ -62,10 +62,80 @@ INDIA_COMPANIES = [
     {"name": "Razorpay", "ats_type": "greenhouse", "ats_slug": "razorpay"},
 ]
 
+# ── BambooHR companies (Indian startups / unicorns) ──────────────────────────
+BAMBOOHR_COMPANIES = [
+    "razorpay", "zerodha", "cred-club", "meesho", "groww", "phonepe",
+    "paytm", "nykaa", "swiggy", "zomato", "ola", "byju", "unacademy",
+    "sharechat", "glance", "dream11", "mpl-gaming", "vedantu", "clevertap",
+    "freshworks", "zoho", "chargebee", "postman", "browserstack", "hasura",
+    "setu", "hypertrack", "sarvam-ai", "krutrim", "sarvam"
+]
+
+# ── Recruitee companies (SE-Asian tech) ──────────────────────────────────────
+RECRUITEE_COMPANIES = [
+    "gojek", "grab", "sea-limited", "tokopedia", "bukalapak",
+    "traveloka", "tiket", "ovo", "dana", "linkaja"
+]
+
+# ── New Greenhouse companies (AI infra / devtools) ───────────────────────────
+NEW_GREENHOUSE = [
+    {"name": "OpenAI", "ats_type": "greenhouse", "ats_slug": "openai"},
+    {"name": "Anthropic", "ats_type": "greenhouse", "ats_slug": "anthropic"},
+    {"name": "Mistral", "ats_type": "greenhouse", "ats_slug": "mistral"},
+    {"name": "Cohere", "ats_type": "greenhouse", "ats_slug": "cohere"},
+    {"name": "Together AI", "ats_type": "greenhouse", "ats_slug": "together-ai"},
+    {"name": "Replicate", "ats_type": "greenhouse", "ats_slug": "replicate"},
+    {"name": "Modal", "ats_type": "greenhouse", "ats_slug": "modal"},
+    {"name": "Fly.io", "ats_type": "greenhouse", "ats_slug": "fly-io"},
+    {"name": "Railway", "ats_type": "greenhouse", "ats_slug": "railway"},
+    {"name": "Render", "ats_type": "greenhouse", "ats_slug": "render"},
+    {"name": "PlanetScale", "ats_type": "greenhouse", "ats_slug": "planetscale"},
+    {"name": "Neon", "ats_type": "greenhouse", "ats_slug": "neon"},
+    {"name": "Turso", "ats_type": "greenhouse", "ats_slug": "turso"},
+    {"name": "Upstash", "ats_type": "greenhouse", "ats_slug": "upstash"},
+    {"name": "Weaviate", "ats_type": "greenhouse", "ats_slug": "weaviate"},
+    {"name": "Qdrant", "ats_type": "greenhouse", "ats_slug": "qdrant"},
+    {"name": "Chroma", "ats_type": "greenhouse", "ats_slug": "chroma"},
+    {"name": "Pinecone", "ats_type": "greenhouse", "ats_slug": "pinecone"},
+    {"name": "LangChain", "ats_type": "greenhouse", "ats_slug": "langchain"},
+]
+
+# ── Massive Public Seed List (Manually Known) ──────────────────────────────
+GREENHOUSE_LARGE = [
+    "stripe", "airbnb", "coinbase", "robinhood", "plaid", "brex", "chime",
+    "figma", "notion", "airtable", "asana", "twilio", "datadog", "snowflake",
+    "databricks", "confluent", "hashicorp", "mongodb", "elastic", "cloudflare",
+    "fastly", "netlify", "vercel", "railway", "render", "supabase", "planetscale",
+    "neon", "upstash", "fly", "modal", "replicate", "huggingface", "cohere",
+    "anthropic", "openai", "mistral", "together", "deepmind", "inflection",
+    "stability", "midjourney", "runway", "pika", "elevenlabs", "perplexity",
+    "cursor", "codeium", "tabnine", "sourcegraph", "gitpod", "replit",
+    "linear", "loom", "miro", "figma", "framer", "webflow", "bubble",
+    "zapier", "make", "pipedream", "retool", "appsmith", "tooljet",
+    "segment", "amplitude", "mixpanel", "heap", "posthog", "hotjar",
+    "intercom", "zendesk", "freshdesk", "hubspot", "salesforce", "pipedrive",
+    "gusto", "rippling", "deel", "remote", "oyster", "papaya", "workday",
+    "servicenow", "okta", "auth0", "1password", "lastpass", "bitwarden",
+    "crowdstrike", "sentinelone", "paloalto", "zscaler", "lacework",
+    "wiz", "orca", "snyk", "sonatype", "veracode", "checkmarx",
+    "twitch", "discord", "reddit", "pinterest", "snap", "tiktok", "bytedance",
+    "spotify", "soundcloud", "bandcamp", "distrokid", "stem",
+    "doordash", "instacart", "gopuff", "getir", "gorillas",
+    "lyft", "via", "bird", "lime", "spin", "tier",
+    "affirm", "klarna", "afterpay", "sezzle", "zip",
+    "nerdwallet", "creditkarma", "sofi", "chime", "varo", "current",
+    "blockfi", "gemini", "kraken", "ftx", "binance", "bitpanda",
+    "dbt", "fivetran", "airbyte", "hightouch", "census", "rudderstack",
+    "starburst", "trino", "dremio", "databricks", "cloudera",
+]
+
 ALL_SEED_LISTS = [
     FAANG_COMPANIES,
     TOP_STARTUPS,
     HFT_FIRMS,
     AI_LABS,
-    INDIA_COMPANIES
+    INDIA_COMPANIES,
+    NEW_GREENHOUSE,
+    # Convert string list to dicts
+    [{"name": s.title(), "ats_type": "greenhouse", "ats_slug": s} for s in GREENHOUSE_LARGE]
 ]

@@ -1,25 +1,22 @@
-from datetime import datetime
-from typing import List
-import httpx
-import structlog
 import asyncio
+from datetime import datetime
+from typing import List, Dict, Any
 
-from .base import BaseCrawler, JobData
+from scrapers.shared.base_adapter import UnifiedAdapter
 
-logger = structlog.get_logger(__name__)
+class WorkableCrawler(UnifiedAdapter):
+    source = "workable"
+    rpm = 60
+    api_domain = "apply.workable.com"
 
-class WorkableCrawler(BaseCrawler):
-    
-    async def crawl_company(self, subdomain: str) -> List[JobData]:
+    async def fetch_jobs(self) -> List[Dict[str, Any]]:
         """Fetch all jobs for a Workable company subdomain."""
         jobs_list = []
-        url = f"https://apply.workable.com/api/v3/accounts/{subdomain}/jobs"
+        url = f"https://apply.workable.com/api/v3/accounts/{self.company}/jobs"
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            await self.check_rate_limit("apply.workable.com", max_requests=10, window_seconds=1)
+        async with self.get_client() as client:
             try:
-                response = await client.get(url)
-                response.raise_for_status()
+                response = await self._fetch_with_retry(client, url)
                 data = response.json()
                 
                 raw_jobs = data.get("results", [])
@@ -34,25 +31,30 @@ class WorkableCrawler(BaseCrawler):
                     is_remote = rj.get("remote", False) or "remote" in location.lower() or "remote" in title_lower
                     job_type = "internship" if "intern" in title_lower else "fulltime"
                     
-                    apply_url = f"https://apply.workable.com/{subdomain}/j/{rj.get('shortcode')}"
+                    apply_url = f"https://apply.workable.com/{self.company}/j/{rj.get('shortcode')}"
                     
-                    job_data = JobData(
-                        external_id=str(rj.get("id", rj.get('shortcode'))),
-                        title=title,
-                        description=rj.get("description", ""),  # Workable search API might not return full desc
-                        apply_url=apply_url,
-                        source="workable",
-                        job_type=job_type,
-                        location=location,
-                        is_remote=is_remote,
-                        company_slug=subdomain,
-                        company_name=subdomain.title(),
-                        raw_data=rj,
-                        scraped_at=datetime.utcnow()
-                    )
-                    jobs_list.append(job_data)
+                    jobs_list.append({
+                        "title": title,
+                        "company": self.company.title(),
+                        "location": location,
+                        "description": rj.get("description", ""),
+                        "url": apply_url,
+                        "apply_url": apply_url,
+                        "source": self.source,
+                        "job_type": job_type,
+                        "is_remote": is_remote,
+                        "raw_data": rj
+                    })
                     
             except Exception as e:
-                logger.error("workable_crawl_error", subdomain=subdomain, error=str(e))
+                import logging
+                logging.getLogger(__name__).error(f"workable_crawl_error slug={self.company} error={e}")
                     
         return jobs_list
+
+if __name__ == "__main__":
+    adapter = WorkableCrawler({"name": "revolut"})
+    jobs = asyncio.run(adapter.run())
+    print(f"Fetched {len(jobs)} jobs")
+    if jobs:
+        print(jobs[0])

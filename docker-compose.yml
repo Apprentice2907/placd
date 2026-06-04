@@ -19,6 +19,12 @@ services:
       timeout: 5s
       retries: 5
 
+  typesense:
+    image: typesense/typesense:0.25.2
+    ports: ["8108:8108"]
+    volumes: ["typesense_data:/data"]
+    command: --data-dir /data --api-key=${TYPESENSE_API_KEY:-plcd_local_ts_key} --enable-cors
+
   redis:
     image: redis:7-alpine
     container_name: placd-redis
@@ -64,7 +70,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
       - REDIS_URL=redis://redis:6379/0
-    command: ["celery", "-A", "workers.crawlers", "worker", "--concurrency=8", "--queues=default,crawl,enrichment", "--loglevel=info"]
+    command: ["celery", "-A", "workers.crawlers", "worker", "--concurrency=8", "--queues=default,crawl,enrichment,celery", "--loglevel=info"]
     depends_on:
       - redis
       - postgres
@@ -131,3 +137,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  typesense_data:

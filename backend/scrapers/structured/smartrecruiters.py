@@ -3,7 +3,7 @@ from datetime import datetime
 import httpx
 import structlog
 
-from scrapers.ats.base import JobData
+from schemas.job import JobData
 from scrapers.structured.base import StructuredBaseScraper
 
 logger = structlog.get_logger(__name__)

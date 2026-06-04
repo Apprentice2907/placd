@@ -33,5 +33,5 @@ def get_stats():
     }
 
 @router.get("/categories", response_model=CategoryCountsResponse)
-def get_categories():
-    return get_categories_api()
+async def get_categories():
+    return await get_categories_api()

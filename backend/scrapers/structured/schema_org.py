@@ -9,7 +9,7 @@ try:
 except ImportError:
     extruct = None
 
-from scrapers.ats.base import JobData
+from schemas.job import JobData
 from scrapers.structured.base import StructuredBaseScraper
 
 logger = structlog.get_logger(__name__)

@@ -3,6 +3,8 @@ FROM python:3.11-slim
 # Create a non-root user
 RUN useradd -m -s /bin/bash appuser
 
+RUN apt-get update && apt-get install -y libreoffice --no-install-recommends
+
 WORKDIR /app
 
 # Install dependencies

@@ -1,10 +1,16 @@
+"""
+Placd — API Services Layer (PostgreSQL)
+All database queries use the async PostgreSQL engine.
+"""
 import sys
-import re
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from typing import Optional, List, Tuple
-from db.database import get_connection, get_job_stats
+
+from sqlalchemy import text
+from db.connection import AsyncSessionLocal
+
 
 COMPANY_ALIASES = {
     'google': 'Google',
@@ -48,11 +54,12 @@ def parse_search_query(query: str) -> dict:
     # Check if the remaining text is exactly a known company alias
     if intents['text'].lower() in COMPANY_ALIASES and not intents['company']:
         intents['company'] = COMPANY_ALIASES[intents['text'].lower()]
-        intents['text'] = '' # Clear text if it perfectly matches a company alias
+        intents['text'] = ''
         
     return intents
 
-def get_jobs_api(
+
+async def get_jobs_api(
     search: Optional[str] = None,
     remote: Optional[bool] = None,
     internship: Optional[bool] = None,
@@ -68,14 +75,13 @@ def get_jobs_api(
     page: int = 1,
     limit: int = 50
 ) -> Tuple[int, List[dict]]:
-    conn = get_connection()
-    
-    # Parse search intents
+    """Paginated job search with advanced filters — async PostgreSQL."""
     intents = parse_search_query(search) if search else {'company': None, 'role': None, 'skill': None, 'collection': None, 'text': ''}
-    
-    base_query = "FROM jobs WHERE canonical_job_id IS NULL AND removed_at IS NULL"
-    params = []
-    
+
+    base_where = "jobs.status = 'active'"
+    params: dict = {}
+    param_idx = 0
+
     fts_conditions = []
     if intents['text']:
         fts_conditions.append(intents['text'])
@@ -83,155 +89,117 @@ def get_jobs_api(
         fts_conditions.append(intents['role'])
     if intents['skill']:
         fts_conditions.append(intents['skill'])
-        
+
     fts_query = " ".join(fts_conditions)
-    
+
     if fts_query:
-        base_query = f"FROM jobs_fts JOIN jobs ON jobs.id = jobs_fts.rowid WHERE jobs_fts MATCH ? AND canonical_job_id IS NULL"
-        params.append(fts_query)
-        
-    conditions = []
+        base_where += " AND (to_tsvector('english', COALESCE(jobs.title, '') || ' ' || COALESCE(jobs.description, '')) @@ websearch_to_tsquery('english', :fts_q))"
+        params["fts_q"] = fts_query
+
     if intents['company']:
-        conditions.append("jobs.company LIKE ?")
-        params.append(f"%{intents['company']}%")
-        
-    if intents.get('collection'):
-        collection_val = intents['collection'].lower()
-        if collection_val == 'faang':
-            conditions.append("(company_type = 'faang' OR company_tags LIKE '%FAANG%')")
-        elif collection_val == 'ai_companies' or collection_val == 'ai':
-            conditions.append("(company_type = 'ai_company' OR company_tags LIKE '%AI%')")
-        elif collection_val == 'unicorn_startups' or collection_val == 'unicorn':
-            conditions.append("(company_type = 'unicorn' OR company_tags LIKE '%Unicorn%')")
-        elif collection_val == 'remote_companies' or collection_val == 'remote':
-            conditions.append("(company_type = 'remote' OR company_tags LIKE '%Remote%')")
-        elif collection_val == 'research_labs' or collection_val == 'research':
-            conditions.append("(company_tags LIKE '%Research%')")
-        
-    if remote: conditions.append("is_remote = 1")
-    if internship: conditions.append("is_internship = 1")
-    if fulltime: conditions.append("is_fulltime = 1")
-    if research: conditions.append("is_research = 1")
-    if new_grad: conditions.append("is_new_grad = 1")
-    if hybrid: conditions.append("is_hybrid = 1")
-    
-    if experience:
-        if experience == "Fresher":
-            conditions.append("is_fresher = 1")
-        else:
-            conditions.append("experience = ?")
-            params.append(experience)
-    else:
-        # Hide senior roles by default if no explicit seniority is selected
-        conditions.append("is_senior = 0")
-            
-    if company_tier:
-        conditions.append("company_tags LIKE ?")
-        params.append(f"%{company_tier}%")
-        
+        base_where += " AND jobs.source ILIKE :company_filter"
+        params["company_filter"] = f"%{intents['company']}%"
+
+    if remote:
+        base_where += " AND jobs.is_remote = true"
+    if internship:
+        base_where += " AND jobs.job_type = 'internship'"
+    if fulltime:
+        base_where += " AND jobs.job_type = 'fulltime'"
+
     if city:
-        conditions.append("(city = ? OR locations LIKE ?)")
-        params.extend([city, f"%\"{city}\"%"])
-        
+        base_where += " AND jobs.location ILIKE :city_filter"
+        params["city_filter"] = f"%{city}%"
     if country:
-        conditions.append("country = ?")
-        params.append(country)
+        base_where += " AND jobs.location ILIKE :country_filter"
+        params["country_filter"] = f"%{country}%"
 
-    if min_score > 0:
-        conditions.append("match_score >= ?")
-        params.append(min_score)
-
-    if conditions:
-        if "WHERE" in base_query:
-            base_query += " AND " + " AND ".join(conditions)
-        else:
-            base_query += " WHERE " + " AND ".join(conditions)
-
-    # Count total
-    count_query = f"SELECT COUNT(*) {base_query}"
-    total = conn.execute(count_query, params).fetchone()[0]
-
-    # Fetch rows
-    # We fetch more rows if there's a search, so we can post-process ranking
-    fetch_limit = limit * 2 if (search and total > limit) else limit
     offset = (page - 1) * limit
-    
-    order_clause = "ORDER BY coalesce(posted_date_normalized, enrichment_timestamp) DESC"
-    data_query = f"SELECT jobs.* {base_query} {order_clause} LIMIT ? OFFSET ?"
-        
-    params.extend([fetch_limit, offset])
-    rows = conn.execute(data_query, params).fetchall()
-    conn.close()
-    
-    jobs_list = [dict(row) for row in rows]
-    
-    # Return strictly the limit requested
+    params["limit"] = limit
+    params["offset"] = offset
+
+    async with AsyncSessionLocal() as session:
+        count_res = await session.execute(
+            text(f"SELECT COUNT(*) FROM jobs WHERE {base_where}"), params
+        )
+        total = count_res.scalar() or 0
+
+        rows_res = await session.execute(
+            text(f"SELECT jobs.* FROM jobs WHERE {base_where} ORDER BY jobs.created_at DESC LIMIT :limit OFFSET :offset"),
+            params,
+        )
+        rows = rows_res.fetchall()
+
+    jobs_list = [dict(r._mapping) for r in rows]
     return total, jobs_list[:limit]
 
 
-def get_job_api(job_id: int) -> Optional[dict]:
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM jobs WHERE id = ? AND canonical_job_id IS NULL AND removed_at IS NULL", (job_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+async def get_job_api(job_id) -> Optional[dict]:
+    """Get a single job by ID from PostgreSQL."""
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            text("SELECT * FROM jobs WHERE id = :id AND status = 'active'"),
+            {"id": str(job_id)},
+        )
+        row = res.fetchone()
+    return dict(row._mapping) if row else None
 
 
-def get_categories_api() -> dict:
-    """Calculate counts dynamically for categories."""
-    conn = get_connection()
-    
-    def count_query(condition: str) -> int:
-        return conn.execute(f"SELECT COUNT(*) FROM jobs WHERE canonical_job_id IS NULL AND removed_at IS NULL AND ({condition})").fetchone()[0]
-    
-    counts = {
-        "ai_ml": count_query("title LIKE '%ai%' OR title LIKE '%machine learning%' OR title LIKE '%data scientist%'"),
-        "backend": count_query("title LIKE '%backend%' OR title LIKE '%python%' OR title LIKE '%java%' OR title LIKE '%node%'"),
-        "frontend": count_query("title LIKE '%frontend%' OR title LIKE '%react%' OR title LIKE '%vue%' OR title LIKE '%angular%'"),
-        "fullstack": count_query("title LIKE '%fullstack%' OR title LIKE '%full-stack%' OR title LIKE '%full stack%'"),
-        "data_science": count_query("title LIKE '%data%' OR title LIKE '%analytics%'"),
-        "remote": count_query("is_remote = 1"),
-        "internship": count_query("is_internship = 1")
-    }
-    
-    conn.close()
+async def get_categories_api() -> dict:
+    """Calculate counts dynamically for categories from PostgreSQL."""
+    async with AsyncSessionLocal() as session:
+        queries = {
+            "ai_ml": "title ILIKE '%ai%' OR title ILIKE '%machine learning%' OR title ILIKE '%data scientist%'",
+            "backend": "title ILIKE '%backend%' OR title ILIKE '%python%' OR title ILIKE '%java%' OR title ILIKE '%node%'",
+            "frontend": "title ILIKE '%frontend%' OR title ILIKE '%react%' OR title ILIKE '%vue%' OR title ILIKE '%angular%'",
+            "fullstack": "title ILIKE '%fullstack%' OR title ILIKE '%full-stack%' OR title ILIKE '%full stack%'",
+            "data_science": "title ILIKE '%data%' OR title ILIKE '%analytics%'",
+            "remote": "is_remote = true",
+            "internship": "job_type = 'internship'",
+        }
+
+        counts = {}
+        for key, condition in queries.items():
+            res = await session.execute(
+                text(f"SELECT COUNT(*) FROM jobs WHERE status = 'active' AND ({condition})")
+            )
+            counts[key] = res.scalar() or 0
+
     return counts
 
-def get_autocomplete_suggestions_api(query: str) -> dict:
+
+async def get_autocomplete_suggestions_api(query: str) -> dict:
     """Returns autocomplete suggestions for companies, roles, and categories."""
     if not query or len(query) < 2:
         return {"companies": [], "roles": [], "categories": []}
-        
+
     query_lower = query.lower()
-    
-    # 1. Companies
+
+    # 1. Companies from aliases
     companies = []
     for alias, canonical in COMPANY_ALIASES.items():
         if query_lower in alias or query_lower in canonical.lower():
             if canonical not in companies:
                 companies.append(canonical)
-                
-    # Also fetch from DB for top companies matching query
-    conn = get_connection()
-    db_companies = conn.execute(
-        "SELECT DISTINCT company FROM jobs WHERE canonical_job_id IS NULL AND removed_at IS NULL AND company LIKE ? LIMIT 5", 
-        (f"%{query}%",)
-    ).fetchall()
-    
-    for row in db_companies:
-        company_name = row[0]
-        if company_name and company_name not in companies:
-            companies.append(company_name)
-            
-    # 2. Roles
+
+    # 2. Companies from database
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            text("SELECT DISTINCT name FROM companies WHERE name ILIKE :q LIMIT 5"),
+            {"q": f"%{query}%"},
+        )
+        for row in res.fetchall():
+            if row[0] and row[0] not in companies:
+                companies.append(row[0])
+
+    # 3. Roles
     roles = ["Software Engineer", "Backend Developer", "Frontend Developer", "Full Stack Developer", "Data Scientist", "Machine Learning Engineer", "Product Manager", "DevOps Engineer"]
     matched_roles = [r for r in roles if query_lower in r.lower()]
-    
-    # 3. Categories
+
+    # 4. Categories
     categories = ["Internship", "Remote", "Fresher", "Full-time"]
     matched_categories = [c for c in categories if query_lower in c.lower()]
-    
-    conn.close()
-    
+
     return {
         "companies": companies[:5],
         "roles": matched_roles[:5],

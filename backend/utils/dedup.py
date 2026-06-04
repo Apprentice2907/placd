@@ -106,60 +106,66 @@ def run_batch_dedup():
     Periodic cleanup pipeline.
     Finds fuzzy duplicates across the entire database, grouped by normalized company name
     to prevent O(N^2) global comparisons.
+    Uses async PostgreSQL via db.connection.
     """
-    from db.database import get_connection, merge_jobs, init_db
+    import asyncio
     import logging
     from rich.console import Console
+    from sqlalchemy import text as sa_text
+    from db.connection import AsyncSessionLocal
 
     console = Console()
-    init_db()
-    conn = get_connection()
-    
-    # We only want to deduplicate jobs that are currently considered canonical
-    rows = conn.execute("SELECT id, title, company, location, fingerprint_hash, source_priority, length(description) as desc_len FROM jobs WHERE canonical_job_id IS NULL ORDER BY source_priority DESC, desc_len DESC").fetchall()
-    conn.close()
-    
-    jobs = [dict(row) for row in rows]
-    
-    # Block by normalized company name
-    company_blocks = {}
-    for j in jobs:
-        nc = normalize_company(j['company'])
-        if nc not in company_blocks:
-            company_blocks[nc] = []
-        company_blocks[nc].append(j)
-        
-    merged_count = 0
-    
-    for nc, block in company_blocks.items():
-        if len(block) < 2:
-            continue
-            
-        # Compare every pair in the block.
-        # Since we sorted by priority DESC, the first item in a duplicate pair 
-        # should become the canonical one.
-        canonicals = [] # List of jobs that have been established as canonical in this block
-        
-        for job in block:
-            is_dup = False
-            for canon in canonicals:
-                # First check exact fingerprint
-                if job['fingerprint_hash'] == canon['fingerprint_hash']:
-                    is_dup = True
-                # Next check fuzzy
-                elif is_fuzzy_duplicate(job['title'], canon['title']):
-                    # Check location fuzzy (or just exact normalized match)
-                    if normalize_location(job['location']) == normalize_location(canon['location']):
-                        is_dup = True
-                        
-                if is_dup:
-                    # Merge job into canon
-                    merge_jobs(canonical_id=canon['id'], duplicate_id=job['id'])
+
+    async def _run():
+        async with AsyncSessionLocal() as session:
+            # Fetch all canonical jobs
+            res = await session.execute(sa_text(
+                "SELECT id, title, source, location FROM jobs WHERE status = 'active' ORDER BY created_at DESC"
+            ))
+            rows = res.fetchall()
+
+        jobs = [dict(r._mapping) for r in rows]
+
+        # Block by normalized company name
+        company_blocks = {}
+        for j in jobs:
+            nc = normalize_company(j.get('source', ''))
+            if nc not in company_blocks:
+                company_blocks[nc] = []
+            company_blocks[nc].append(j)
+
+        merged_count = 0
+
+        for nc, block in company_blocks.items():
+            if len(block) < 2:
+                continue
+
+            canonicals = []
+            for job in block:
+                is_dup = False
+                for canon in canonicals:
+                    if is_fuzzy_duplicate(job.get('title', ''), canon.get('title', '')):
+                        if normalize_location(job.get('location', '')) == normalize_location(canon.get('location', '')):
+                            is_dup = True
+                            break
+
+                if not is_dup:
+                    canonicals.append(job)
+                else:
                     merged_count += 1
-                    break
-            
-            if not is_dup:
-                canonicals.append(job)
-                
-    console.print(f"[bold green]Batch Deduplication Complete: Merged {merged_count} jobs![/bold green]")
-    return merged_count
+
+        console.print(f"[bold green]Batch Deduplication Complete: Found {merged_count} potential duplicates![/bold green]")
+        return merged_count
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, _run()).result()
+    else:
+        return asyncio.run(_run())
+

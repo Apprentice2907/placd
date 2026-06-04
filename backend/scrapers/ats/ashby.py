@@ -1,30 +1,22 @@
-from datetime import datetime
-from typing import List
-import httpx
-import structlog
 import asyncio
+from datetime import datetime
+from typing import List, Dict, Any
 
-from .base import BaseCrawler, JobData
+from scrapers.shared.base_adapter import UnifiedAdapter
 
-logger = structlog.get_logger(__name__)
+class AshbyCrawler(UnifiedAdapter):
+    source = "ashby"
+    rpm = 60
+    api_domain = "jobs.ashbyhq.com"
 
-class AshbyCrawler(BaseCrawler):
-    
-    async def crawl_company(self, slug: str) -> List[JobData]:
+    async def fetch_jobs(self) -> List[Dict[str, Any]]:
         """Fetch all jobs for an Ashby company slug."""
         jobs_list = []
-        url = f"https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobBoardWithTeams"
+        url = f"https://jobs.ashbyhq.com/api/posting-api/job-board?organizationHostedJobsPageName={self.company}"
         
-        # Ashby generally uses GraphQL. If the user provided a REST endpoint in instructions:
-        # url = f"https://jobs.ashby.com/api/posting-api/job-board?organizationHostedJobsPageName={slug}"
-        # We will use the REST endpoint provided by the user's prompt.
-        url = f"https://jobs.ashbyhq.com/api/posting-api/job-board?organizationHostedJobsPageName={slug}"
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            await self.check_rate_limit("jobs.ashbyhq.com", max_requests=10, window_seconds=1)
+        async with self.get_client() as client:
             try:
-                response = await client.get(url)
-                response.raise_for_status()
+                response = await self._fetch_with_retry(client, url)
                 data = response.json()
                 
                 raw_jobs = data.get("jobPostings", [])
@@ -37,23 +29,28 @@ class AshbyCrawler(BaseCrawler):
                     is_remote = "remote" in location.lower() or "remote" in title_lower
                     job_type = "internship" if "intern" in title_lower else "fulltime"
                     
-                    job_data = JobData(
-                        external_id=str(rj.get("id")),
-                        title=title,
-                        description=rj.get("descriptionHtml", ""),
-                        apply_url=rj.get("externalLink", ""),
-                        source="ashby",
-                        job_type=job_type,
-                        location=location,
-                        is_remote=is_remote,
-                        company_slug=slug,
-                        company_name=slug.title(),
-                        raw_data=rj,
-                        scraped_at=datetime.utcnow()
-                    )
-                    jobs_list.append(job_data)
+                    jobs_list.append({
+                        "title": title,
+                        "company": self.company.title(),
+                        "location": location,
+                        "description": rj.get("descriptionHtml", ""),
+                        "url": rj.get("externalLink", ""),
+                        "apply_url": rj.get("externalLink", ""),
+                        "source": self.source,
+                        "job_type": job_type,
+                        "is_remote": is_remote,
+                        "raw_data": rj
+                    })
                     
             except Exception as e:
-                logger.error("ashby_crawl_error", slug=slug, error=str(e))
+                import logging
+                logging.getLogger(__name__).error(f"ashby_crawl_error slug={self.company} error={e}")
                     
         return jobs_list
+
+if __name__ == "__main__":
+    adapter = AshbyCrawler({"name": "notion"})
+    jobs = asyncio.run(adapter.run())
+    print(f"Fetched {len(jobs)} jobs")
+    if jobs:
+        print(jobs[0])

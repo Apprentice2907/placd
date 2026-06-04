@@ -7,16 +7,9 @@ import { Link } from 'react-router-dom';
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
-  { id: 'faang', label: 'FAANG' },
-  { id: 'hft', label: 'HFT / Quant' },
-  { id: 'ai_lab', label: 'AI Labs' },
   { id: 'internship', label: 'Internships' },
-  { id: 'new_grad', label: 'New Grad' },
+  { id: 'fulltime', label: 'Full-time' },
   { id: 'remote', label: 'Remote' },
-  { id: 'startup', label: 'Startups' },
-  { id: 'india', label: 'India' },
-  { id: 'scholarship', label: 'Scholarships' },
-  { id: 'fellowship', label: 'Fellowships' }
 ];
 
 const VIEWS = [
@@ -118,7 +111,7 @@ export const HiringCalendarPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-[#0a0a0a] text-neutral-900 dark:text-neutral-100 p-4 sm:p-8 flex flex-col items-center">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] p-4 sm:p-8 flex flex-col items-center">
       <div className="max-w-7xl w-full">
         
         {/* Header */}
@@ -127,7 +120,7 @@ export const HiringCalendarPage: React.FC = () => {
             <CalendarIcon className="w-8 h-8 text-indigo-500" />
             Hiring calendar
           </h1>
-          <p className="text-neutral-500 dark:text-neutral-400 text-lg">
+          <p className="text-[var(--text-secondary)] text-lg">
             All job and internship openings on their actual dates.
           </p>
         </header>
@@ -144,7 +137,7 @@ export const HiringCalendarPage: React.FC = () => {
                   "px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors",
                   selectedCategory === cat.id
                     ? "bg-indigo-600 text-white shadow-sm"
-                    : "bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700"
+                    : "bg-white dark:bg-neutral-800 border border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
                 )}
               >
                 {cat.label}
@@ -154,7 +147,7 @@ export const HiringCalendarPage: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto justify-between xl:justify-end">
             {/* View Toggle */}
-            <div className="flex bg-white dark:bg-neutral-800 rounded-lg p-1 border border-neutral-200 dark:border-neutral-700">
+            <div className="flex bg-white dark:bg-neutral-800 rounded-lg p-1 border border-[var(--border-color)]">
               {VIEWS.map(v => (
                 <button
                   key={v.id}
@@ -162,8 +155,8 @@ export const HiringCalendarPage: React.FC = () => {
                   className={cn(
                     "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                     selectedView === v.id
-                      ? "bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-white shadow-sm"
-                      : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                      ? "bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm"
+                      : "text-[var(--text-secondary)] hover:text-neutral-700 dark:hover:text-neutral-200"
                   )}
                 >
                   {v.label}
@@ -172,7 +165,7 @@ export const HiringCalendarPage: React.FC = () => {
             </div>
 
             {/* Navigation */}
-            <div className="flex items-center gap-4 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-1">
+            <div className="flex items-center gap-4 bg-white dark:bg-neutral-800 border border-[var(--border-color)] rounded-lg p-1">
               <button onClick={prevMonth} className="p-1.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors">
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -187,18 +180,18 @@ export const HiringCalendarPage: React.FC = () => {
         </div>
 
         {/* Sync Status */}
-        <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 mb-4 font-medium justify-end">
+        <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] mb-4 font-medium justify-end">
           <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
           Last synced {formatLastUpdated(data?.last_updated)}
         </div>
 
         {/* Calendar Grid (Month View) */}
         {selectedView === 'month' && (
-          <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden shadow-sm">
+          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] overflow-hidden shadow-sm">
             {/* Weekdays */}
-            <div className="grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800">
+            <div className="grid grid-cols-7 border-b border-[var(--border-color)]">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="py-3 text-center text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
+                <div key={day} className="py-3 text-center text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                   {day}
                 </div>
               ))}
@@ -216,8 +209,8 @@ export const HiringCalendarPage: React.FC = () => {
                   <div 
                     key={idx} 
                     className={cn(
-                      "min-h-[120px] p-2 border-b border-r border-neutral-200 dark:border-neutral-800 last:border-r-0 relative transition-colors",
-                      d.type === 'padding' ? "bg-neutral-50/50 dark:bg-neutral-900/50" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/30",
+                      "min-h-[120px] p-2 border-b border-r border-[var(--border-color)] last:border-r-0 relative transition-colors",
+                      d.type === 'padding' ? "bg-neutral-50/50 dark:bg-neutral-900/50" : "hover:bg-[var(--bg-secondary)]/30",
                       // remove right border from last column
                       (idx + 1) % 7 === 0 && "border-r-0"
                     )}
@@ -251,7 +244,7 @@ export const HiringCalendarPage: React.FC = () => {
                             </button>
                           ))}
                           {hasMore && (
-                            <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium px-2 py-1">
+                            <div className="text-xs text-[var(--text-secondary)] font-medium px-2 py-1">
                               +{dayEvents.length - 2} more
                             </div>
                           )}
@@ -266,20 +259,21 @@ export const HiringCalendarPage: React.FC = () => {
         )}
 
         {selectedView !== 'month' && (
-          <div className="p-12 text-center text-neutral-500 border border-dashed border-neutral-300 dark:border-neutral-700 rounded-2xl">
+          <div className="p-12 text-center text-neutral-500 border border-dashed border-[var(--border-color)] rounded-2xl">
             {selectedView} view coming soon!
           </div>
         )}
 
         {/* Legend */}
         <div className="mt-6 flex flex-wrap gap-4 items-center justify-center sm:justify-start text-sm">
-          <span className="font-semibold text-neutral-500 dark:text-neutral-400 mr-2">Legend:</span>
-          {['faang', 'hft', 'ai_lab', 'startup', 'fellowship'].map(cat => {
+          <span className="font-semibold text-[var(--text-secondary)] mr-2">Legend:</span>
+          {['internship', 'fulltime', 'remote'].map(cat => {
             const label = CATEGORIES.find(c => c.id === cat)?.label;
+            if (!label) return null;
             return (
               <div key={cat} className="flex items-center gap-2">
                 <div className={cn("w-3 h-3 rounded-full", getCategoryColorClass(cat).split(' ')[0])}></div>
-                <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
+                <span className="text-[var(--text-secondary)]">{label}</span>
               </div>
             );
           })}
@@ -291,7 +285,7 @@ export const HiringCalendarPage: React.FC = () => {
       {selectedEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/50 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}>
           <div 
-            className="bg-white dark:bg-neutral-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-neutral-200 dark:border-neutral-800"
+            className="bg-[var(--bg-card)] w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-[var(--border-color)]"
             onClick={e => e.stopPropagation()}
           >
             <div className={cn("p-6 border-b border-black/5 dark:border-white/5", getCategoryColorClass(selectedEvent.category).split(' ')[0])}>
@@ -306,22 +300,22 @@ export const HiringCalendarPage: React.FC = () => {
             <div className="p-6">
               <div className="space-y-4">
                 <div>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-1">Event Date</p>
+                  <p className="text-sm text-[var(--text-secondary)] mb-1">Event Date</p>
                   <p className="font-semibold text-lg">{new Date(selectedEvent.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                 </div>
                 
                 <div>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-1">Description</p>
+                  <p className="text-sm text-[var(--text-secondary)] mb-1">Description</p>
                   <p className="font-medium">{selectedEvent.title}</p>
                 </div>
 
                 <div className="flex items-center gap-3 py-3 border-y border-neutral-100 dark:border-neutral-800">
-                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-2 rounded-lg">
-                    <Briefcase className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  <div className="bg-[var(--accent-purple)]/10 p-2 rounded-lg">
+                    <Briefcase className="w-5 h-5 text-[var(--accent-purple)]" />
                   </div>
                   <div>
                     <p className="font-bold text-lg">{selectedEvent.job_count}</p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400">Active listings</p>
+                    <p className="text-xs text-[var(--text-secondary)]">Active listings</p>
                   </div>
                 </div>
               </div>
@@ -339,7 +333,7 @@ export const HiringCalendarPage: React.FC = () => {
                     href={selectedEvent.source_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white py-3 px-4 rounded-xl font-semibold flex items-center justify-center transition-colors"
+                    className="bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-[var(--text-primary)] py-3 px-4 rounded-xl font-semibold flex items-center justify-center transition-colors"
                     title="Source Link"
                   >
                     <ExternalLink className="w-5 h-5" />

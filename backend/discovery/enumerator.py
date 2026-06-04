@@ -84,8 +84,7 @@ async def enumerate_greenhouse_slugs() -> List[Dict]:
                         "name": slug.replace("-", " ").title(),
                         "ats_type": "greenhouse",
                         "ats_slug": slug,
-                        "careers_url": f"https://boards.greenhouse.io/v1/boards/{slug}/jobs",
-                        "domain": f"{slug}.com"  # fallback domain
+                        "source": "commoncrawl"
                     })
     except Exception as e:
         log.error(f"Error enumerating Greenhouse: {e}")
@@ -114,8 +113,7 @@ async def enumerate_lever_slugs() -> List[Dict]:
                         "name": slug.replace("-", " ").title(),
                         "ats_type": "lever",
                         "ats_slug": slug,
-                        "careers_url": f"https://jobs.lever.co/{slug}",
-                        "domain": f"{slug}.com"
+                        "source": "commoncrawl"
                     })
     except Exception as e:
         log.error(f"Error enumerating Lever: {e}")
@@ -144,8 +142,7 @@ async def enumerate_ashby_slugs() -> List[Dict]:
                         "name": slug.replace("-", " ").title(),
                         "ats_type": "ashby",
                         "ats_slug": slug,
-                        "careers_url": f"https://jobs.ashbyhq.com/{slug}",
-                        "domain": f"{slug}.com"
+                        "source": "commoncrawl"
                     })
     except Exception as e:
         log.error(f"Error enumerating Ashby: {e}")
@@ -184,8 +181,7 @@ async def enumerate_workday_domains() -> List[Dict]:
                             "name": slug.replace("-", " ").title(),
                             "ats_type": "workday",
                             "ats_slug": slug,
-                            "careers_url": f"https://{host}",
-                            "domain": f"{slug}.com"
+                            "source": "commoncrawl"
                         })
         except Exception as e:
             log.error(f"Error enumerating Workday pattern {pattern}: {e}")
@@ -259,8 +255,7 @@ async def google_dork_discovery(ats_type: str) -> List[Dict]:
                             "name": slug.replace("-", " ").title(),
                             "ats_type": ats_type,
                             "ats_slug": slug,
-                            "careers_url": href,
-                            "domain": f"{slug}.com"
+                            "source": "google_dork"
                         })
                         
         except Exception as e:
@@ -273,31 +268,24 @@ async def google_dork_discovery(ats_type: str) -> List[Dict]:
 
 async def save_companies_batch(companies: List[Dict], db=None) -> int:
     """
-    Bulk upsert into companies table using ON CONFLICT (domain).
+    Bulk upsert into discovered_companies table using ON CONFLICT (slug, platform).
     """
     if not companies:
         return 0
         
-    # Deduplicate by domain to avoid postgres errors within a single statement
     unique_companies = {}
     for comp in companies:
-        domain = comp.get("domain") or f"{comp['ats_slug']}.com"
-        if domain not in unique_companies:
-            comp["domain"] = domain
-            comp["crawl_priority"] = get_priority_for_slug(comp["ats_slug"])
-            unique_companies[domain] = comp
+        key = f"{comp['ats_slug']}_{comp['ats_type']}"
+        if key not in unique_companies:
+            unique_companies[key] = comp
             
     insert_data = list(unique_companies.values())
     
     query = text("""
-        INSERT INTO companies (name, domain, ats_type, ats_slug, careers_url, crawl_priority)
-        VALUES (:name, :domain, :ats_type, :ats_slug, :careers_url, :crawl_priority)
-        ON CONFLICT (domain) DO UPDATE SET
-            ats_type = EXCLUDED.ats_type,
-            ats_slug = EXCLUDED.ats_slug,
-            careers_url = EXCLUDED.careers_url,
-            crawl_priority = EXCLUDED.crawl_priority,
-            updated_at = NOW()
+        INSERT INTO discovered_companies (slug, platform, source)
+        VALUES (:ats_slug, :ats_type, :source)
+        ON CONFLICT (slug, platform) DO UPDATE SET
+            source = EXCLUDED.source
     """)
     
     count = 0
@@ -338,8 +326,7 @@ async def _run_discovery():
                 "name": comp["name"],
                 "ats_type": comp["ats_type"],
                 "ats_slug": comp["ats_slug"],
-                "careers_url": "", # Will be filled by enumerator updates if found
-                "domain": f"{comp['ats_slug']}.com",
+                "source": "seed_list"
             })
             
     await save_companies_batch(seeds)
@@ -384,6 +371,35 @@ async def _run_discovery():
         f"Summary: Discovered {counts['greenhouse']} greenhouse, {counts['lever']} lever, "
         f"{counts['ashby']} ashby, {counts['workday']} workday companies."
     )
+
+
+async def discover_platform(platform: str):
+    """Entry point for discovering slugs for a specific platform."""
+    log.info(f"Running discovery for platform: {platform}")
+    tasks = []
+    if platform == "greenhouse":
+        tasks = [enumerate_greenhouse_slugs(), google_dork_discovery("greenhouse")]
+    elif platform == "lever":
+        tasks = [enumerate_lever_slugs(), google_dork_discovery("lever")]
+    elif platform == "ashby":
+        tasks = [enumerate_ashby_slugs(), google_dork_discovery("ashby")]
+    elif platform == "workday":
+        tasks = [enumerate_workday_domains(), google_dork_discovery("workday")]
+    else:
+        log.warning(f"No specific enumeration routines for {platform}")
+        return
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    all_discovered = []
+    for result in results:
+        if isinstance(result, Exception):
+            log.error(f"Enumerator task failed: {result}")
+        else:
+            all_discovered.extend(result)
+            
+    if all_discovered:
+        inserted = await save_companies_batch(all_discovered)
+        log.info(f"Platform {platform} discovery complete: found {len(all_discovered)} potential slugs, inserted/updated {inserted}")
 
 
 @shared_task(name="discover_companies_task")

@@ -1,12 +1,13 @@
-import asyncio
 import logging
 from datetime import datetime, timedelta
 from sqlalchemy import text
 
-from workers.crawlers import celery as celery_app
+from workers.celery_config import app as celery_app
+from utils.async_utils import run_async
 from scrapers.opportunities.opportunities_corners import OpportunitiesCornersScraper, OPPORTUNITIES_CORNERS_CATEGORIES
 from scrapers.opportunities.opportunities_circle import OpportunitiesCircleScraper, OPPORTUNITIES_CIRCLE_CATEGORIES
 from db.connection import AsyncSessionLocal
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ def crawl_opportunities_corners_task():
         finally:
             await scraper._close()
             
-    asyncio.run(_run())
+    run_async(_run())
 
 @celery_app.task(name='crawl_opportunities_circle')
 def crawl_opportunities_circle_task():
@@ -34,7 +35,7 @@ def crawl_opportunities_circle_task():
         finally:
             await scraper._close()
             
-    asyncio.run(_run())
+    run_async(_run())
 
 @celery_app.task(name='crawl_all_opportunities')
 def crawl_all_opportunities_task():
@@ -102,4 +103,4 @@ def sweep_expired_opportunities_task():
                         await session.commit()
                         logger.info(f"Marked {len(expired_ids)} older opportunities as expired via 404 HEAD check.")
                         
-    asyncio.run(_run())
+    run_async(_run())

@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
 
 # Create a non-root user
 RUN useradd -m -s /bin/bash appuser

@@ -1,574 +1,450 @@
 """
-Placd — Database Module
-SQLite database with FTS5 full-text search for job listings.
+Placd — Database Module (PostgreSQL)
+Async PostgreSQL backend via SQLAlchemy 2.0 + asyncpg.
+
+This module provides the public API that the rest of the codebase imports.
+All functions delegate to the async PostgreSQL engine defined in db.connection.
 """
 
-import sqlite3
+import asyncio
+import json
+import time as _time
+import hashlib
+import uuid
+import logging
 from datetime import datetime
 from typing import Optional
 
-from utils.config import DB_PATH
+from sqlalchemy import text
+
+from db.connection import AsyncSessionLocal, engine
+from utils.minhash_lsh import deduplicator
+from utils.spam_filter import is_spam
+from utils.company_trust import calculate_trust_score, get_company_tier, TRUST_SCORE_WEIGHTS
+from utils.job_tagger import tag_job
+
+logger = logging.getLogger(__name__)
 
 
-def get_connection() -> sqlite3.Connection:
-    """Return a connection to the SQLite database."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA foreign_keys=ON;")
-    return conn
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _run_async(coro):
+    """
+    Run an async coroutine from synchronous code.
+    Handles the case where an event loop is already running (e.g. inside Celery)
+    by creating a new thread-based loop.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # We're inside an already-running loop (e.g. FastAPI, Celery with async).
+        # Use a new thread to avoid deadlock.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    else:
+        return asyncio.run(coro)
+
+
+# ─── Schema Initialization ──────────────────────────────────────────────────
+
+async def _async_init_db() -> None:
+    """Ensure PostgreSQL schema exists (tables, indexes, extensions)."""
+    from pathlib import Path
+
+    schema_path = Path(__file__).parent / "schema.sql"
+    schema_sql = schema_path.read_text(encoding="utf-8")
+
+    async with engine.begin() as conn:
+        # Execute schema.sql statements — split on semicolons for individual execution
+        for statement in schema_sql.split(";"):
+            stmt = statement.strip()
+            if stmt and not stmt.startswith("--"):
+                try:
+                    await conn.execute(text(stmt))
+                except Exception:
+                    pass  # Ignore "already exists" errors
 
 
 def init_db() -> None:
-    """Create tables and FTS5 virtual table if they don't exist."""
-    conn = get_connection()
-    cursor = conn.cursor()
+    """Create tables if they don't exist. Safe to call multiple times."""
+    _run_async(_async_init_db())
 
-    # ── Main jobs table ──────────────────────────────────────────────────
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS jobs (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            title          TEXT    NOT NULL,
-            company        TEXT    NOT NULL,
-            location       TEXT    DEFAULT '',
-            job_type       TEXT    DEFAULT '',       -- full-time, internship, etc.
-            salary         TEXT    DEFAULT '',
-            description    TEXT    DEFAULT '',
-            url            TEXT    UNIQUE NOT NULL,
-            source         TEXT    NOT NULL,         -- google_jobs, internshala, naukri, amazon
-            skills         TEXT    DEFAULT '',       -- comma-separated extracted skills
-            match_score    REAL    DEFAULT 0.0,
-            status         TEXT    DEFAULT 'new',    -- new, applied, rejected, interview, offer
-            scraped_at     TEXT    NOT NULL,
-            applied_at     TEXT    DEFAULT NULL,
-            notes          TEXT    DEFAULT '',
-            apply_url      TEXT    DEFAULT '',       -- direct application link
-            hiring_status  TEXT    DEFAULT '',       -- actively hiring / closed / ''
-            duration       TEXT    DEFAULT '',       -- internship duration e.g. '3 Months'
-            experience     TEXT    DEFAULT '',       -- required experience e.g. '0-1 Yrs'
-            posted_date    TEXT    DEFAULT '',       -- ISO date or relative string
-            is_enriched    BOOLEAN DEFAULT 0,
-            enrichment_timestamp TEXT DEFAULT NULL,
-            last_seen_at   TEXT    DEFAULT NULL,
-            source_priority INTEGER DEFAULT 0,
-            is_remote      BOOLEAN DEFAULT 0,
-            is_hybrid      BOOLEAN DEFAULT 0,
-            is_fulltime    BOOLEAN DEFAULT 0,
-            is_internship  BOOLEAN DEFAULT 0,
-            is_fresher     BOOLEAN DEFAULT 0,
-            fingerprint_hash TEXT DEFAULT '',
-            canonical_job_id INTEGER DEFAULT NULL,
-            merged_sources TEXT DEFAULT '',
-            source_count   INTEGER DEFAULT 1,
-            final_score    REAL DEFAULT 0.0,
-            ranking_breakdown TEXT DEFAULT '{}',
-            recency_score  REAL DEFAULT 0.0,
-            posted_date_normalized TEXT DEFAULT NULL,
-            company_tags   TEXT DEFAULT '',
-            is_paid        INTEGER DEFAULT NULL,
-            company_type   TEXT DEFAULT '',
-            is_research    BOOLEAN DEFAULT 0,
-            is_new_grad    BOOLEAN DEFAULT 0
-        );
-    """)
+# ─── Job Persistence ─────────────────────────────────────────────────────────
 
-    # ── User Profile table ───────────────────────────────────────────────
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_profile (
-            id INTEGER PRIMARY KEY CHECK (id = 1), -- Single-tenant architecture
-            education_year INTEGER DEFAULT NULL,
-            degree TEXT DEFAULT '',
-            skills TEXT DEFAULT '',
-            preferred_roles TEXT DEFAULT '',
-            remote_preference BOOLEAN DEFAULT 0,
-            expected_salary TEXT DEFAULT '',
-            is_fresher_seeking BOOLEAN DEFAULT 0,
-            is_internship_seeking BOOLEAN DEFAULT 0,
-            updated_at TEXT DEFAULT NULL
-        );
-    """)
-
-    # ── Source Health table ──────────────────────────────────────────────
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS source_health (
-            source TEXT PRIMARY KEY,
-            last_successful_scrape TEXT DEFAULT NULL,
-            jobs_added INTEGER DEFAULT 0,
-            error_count INTEGER DEFAULT 0,
-            status TEXT DEFAULT 'unknown'
-        );
-    """)
-
-    # ── Scraping State table ──────────────────────────────────────────────
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS scraping_state (
-            source TEXT PRIMARY KEY,
-            state_data TEXT DEFAULT '{}',
-            updated_at TEXT DEFAULT NULL
-        );
-    """)
-
-    # ── Non-breaking Migrations ──────────────────────────────────────────
-    _migrate_db(cursor)
-
-    # ── Indexes for deduplication ────────────────────────────────────────
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_fingerprint ON jobs(fingerprint_hash);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_external ON jobs(external_job_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_canonical ON jobs(canonical_job_id);")
-
-    # ── Indexes for API filtering ────────────────────────────────────────
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_match_score ON jobs(match_score);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_scraped_at ON jobs(scraped_at);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_removed_at ON jobs(removed_at);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_remote ON jobs(is_remote);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_internship ON jobs(is_internship);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_fulltime ON jobs(is_fulltime);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_fresher ON jobs(is_fresher);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_hybrid ON jobs(is_hybrid);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_final_score ON jobs(final_score);")
-
-    # ── FTS5 full-text search index ──────────────────────────────────────
-    cursor.execute("""
-        CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
-            title, company, location, description, skills,
-            content='jobs',
-            content_rowid='id'
-        );
-    """)
-
-    # ── Triggers to keep FTS in sync ─────────────────────────────────────
-    cursor.executescript("""
-        CREATE TRIGGER IF NOT EXISTS jobs_ai AFTER INSERT ON jobs BEGIN
-            INSERT INTO jobs_fts(rowid, title, company, location, description, skills)
-            VALUES (new.id, new.title, new.company, new.location, new.description, new.skills);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS jobs_ad AFTER DELETE ON jobs BEGIN
-            INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location, description, skills)
-            VALUES ('delete', old.id, old.title, old.company, old.location, old.description, old.skills);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS jobs_au AFTER UPDATE ON jobs BEGIN
-            INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location, description, skills)
-            VALUES ('delete', old.id, old.title, old.company, old.location, old.description, old.skills);
-            INSERT INTO jobs_fts(rowid, title, company, location, description, skills)
-            VALUES (new.id, new.title, new.company, new.location, new.description, new.skills);
-        END;
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def _migrate_db(cursor: sqlite3.Cursor) -> None:
+async def async_save_jobs(jobs: list, source: str = None, company_id: str = None, db_session=None) -> tuple[int, int]:
     """
-    Non-breaking schema migration: add new columns to existing databases.
-    Silently skips columns that already exist (catches OperationalError).
+    Centralized job saving logic.
+    1. Spam detection — reject obvious spam.
+    2. Trust scoring — compute quality score.
+    3. Runs fuzzy deduplication via MinHash LSH.
+    4. Upserts jobs to PostgreSQL.
+    Returns (inserted_count, updated_count).
     """
-    new_columns = [
-        ("apply_url",     "TEXT DEFAULT ''"),
-        ("hiring_status", "TEXT DEFAULT ''"),
-        ("duration",      "TEXT DEFAULT ''"),
-        ("experience",    "TEXT DEFAULT ''"),
-        ("posted_date",   "TEXT DEFAULT ''"),
-        ("is_enriched",   "BOOLEAN DEFAULT 0"),
-        ("enrichment_timestamp", "TEXT DEFAULT NULL"),
-        ("last_seen_at",  "TEXT DEFAULT NULL"),
-        ("source_priority", "INTEGER DEFAULT 0"),
-        ("is_remote",     "BOOLEAN DEFAULT 0"),
-        ("is_hybrid",     "BOOLEAN DEFAULT 0"),
-        ("is_fulltime",   "BOOLEAN DEFAULT 0"),
-        ("is_internship", "BOOLEAN DEFAULT 0"),
-        ("is_fresher",    "BOOLEAN DEFAULT 0"),
-        ("fingerprint_hash", "TEXT DEFAULT ''"),
-        ("canonical_job_id", "INTEGER DEFAULT NULL"),
-        ("merged_sources", "TEXT DEFAULT ''"),
-        ("source_count",  "INTEGER DEFAULT 1"),
-        ("final_score",   "REAL DEFAULT 0.0"),
-        ("ranking_breakdown", "TEXT DEFAULT '{}'"),
-        ("recency_score", "REAL DEFAULT 0.0"),
-        ("posted_date_normalized", "TEXT DEFAULT NULL"),
-        ("company_tags", "TEXT DEFAULT ''"),
-        ("is_paid", "INTEGER DEFAULT NULL"),
-        ("company_type", "TEXT DEFAULT ''"),
-        ("is_senior",     "BOOLEAN DEFAULT 0"),
-        ("removed_at",    "TEXT DEFAULT NULL"),
-        ("external_job_id", "TEXT DEFAULT NULL"),
-        ("is_research",   "BOOLEAN DEFAULT 0"),
-        ("is_new_grad",   "BOOLEAN DEFAULT 0"),
-        ("city",          "TEXT DEFAULT ''"),
-        ("state",         "TEXT DEFAULT ''"),
-        ("country",       "TEXT DEFAULT ''"),
-        ("locations",     "TEXT DEFAULT ''"),
-        ("compact_summary", "TEXT DEFAULT ''"),
-    ]
-    for col_name, col_def in new_columns:
-        try:
-            cursor.execute(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_def}")
-        except sqlite3.OperationalError:
-            pass  # Column already exists — skip silently
-
-
-def insert_jobs_bulk(jobs: list[dict]) -> int:
-    """
-    High-speed bulk insert of scraped jobs.
-    Generates fingerprint_hash. If fingerprint already exists, merges the sources.
-    Otherwise inserts a new canonical job.
-    Uses UPSERT to update `last_seen_at` and reset `removed_at` to NULL if the exact URL already exists.
-    Returns the number of *new* rows inserted.
-    """
-    from utils.dedup import generate_fingerprint
     if not jobs:
-        return 0
+        return 0, 0
 
-    now_iso = datetime.now().isoformat()
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-        old_count = cursor.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    # Convert objects to dicts if needed
+    dict_jobs = []
+    for j in jobs:
+        if hasattr(j, "model_dump"):
+            dict_jobs.append(j.model_dump())
+        elif hasattr(j, "dict"):
+            dict_jobs.append(j.dict())
+        elif hasattr(j, "_mapping"):
+            dict_jobs.append(dict(j._mapping))
+        elif isinstance(j, dict):
+            dict_jobs.append(j)
 
-        # Process each job
-        for job in jobs:
-            fp = generate_fingerprint(
-                job.get("title", ""),
-                job.get("company", ""),
-                job.get("location", "")
-            )
-            
-            # Check if fingerprint or external_job_id already exists
-            canon = None
-            if job.get("external_job_id"):
-                canon = cursor.execute("SELECT id, merged_sources FROM jobs WHERE external_job_id = ? AND canonical_job_id IS NULL LIMIT 1", (job["external_job_id"],)).fetchone()
-            
-            if not canon:
-                canon = cursor.execute("SELECT id, merged_sources FROM jobs WHERE fingerprint_hash = ? AND canonical_job_id IS NULL LIMIT 1", (fp,)).fetchone()
-            
-            if canon:
-                # Group under this canonical job
-                canon_id = canon['id']
-                existing_sources = set((canon['merged_sources'] or "").split(","))
-                existing_sources.add(job["source"])
-                existing_sources.discard("")
-                merged_str = ",".join(sorted(existing_sources))
-                
-                # We insert the new URL, but set canonical_job_id
-                cursor.execute("""
-                    INSERT INTO jobs
-                        (title, company, location, job_type, salary,
-                         description, url, source, skills, match_score,
-                         apply_url, hiring_status, duration,
-                         experience, posted_date, scraped_at, last_seen_at, source_priority,
-                         fingerprint_hash, canonical_job_id, merged_sources, source_count, company_tags, company_type, external_job_id, removed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                    ON CONFLICT(url) DO UPDATE SET
-                        last_seen_at = excluded.last_seen_at,
-                        removed_at = NULL
-                """, (
-                    job.get("title", ""), job.get("company", ""), job.get("location", ""),
-                    job.get("job_type", ""), job.get("salary", ""), job.get("description", ""),
-                    job["url"], job["source"], job.get("skills", ""), job.get("match_score", 0.0),
-                    job.get("apply_url", ""), job.get("hiring_status", ""), job.get("duration", ""),
-                    job.get("experience", ""), job.get("posted_date", ""), now_iso, now_iso,
-                    job.get("source_priority", 0), fp, canon_id, "", 1, job.get("company_tags", ""), job.get("company_type", ""), job.get("external_job_id")
-                ))
-                
-                # Update canonical record's merged sources
-                cursor.execute(
-                    "UPDATE jobs SET merged_sources = ?, source_count = ?, last_seen_at = ?, removed_at = NULL WHERE id = ?",
-                    (merged_str, len(existing_sources), now_iso, canon_id)
-                )
-            else:
-                # No existing canonical job, insert as a new canonical job
-                cursor.execute("""
-                    INSERT INTO jobs
-                        (title, company, location, job_type, salary,
-                         description, url, source, skills, match_score,
-                         apply_url, hiring_status, duration,
-                         experience, posted_date, scraped_at, last_seen_at, source_priority,
-                         fingerprint_hash, canonical_job_id, merged_sources, source_count, company_tags, company_type, external_job_id, removed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 1, ?, ?, ?, NULL)
-                    ON CONFLICT(url) DO UPDATE SET
-                        last_seen_at = excluded.last_seen_at,
-                        removed_at = NULL
-                """, (
-                    job.get("title", ""), job.get("company", ""), job.get("location", ""),
-                    job.get("job_type", ""), job.get("salary", ""), job.get("description", ""),
-                    job["url"], job["source"], job.get("skills", ""), job.get("match_score", 0.0),
-                    job.get("apply_url", ""), job.get("hiring_status", ""), job.get("duration", ""),
-                    job.get("experience", ""), job.get("posted_date", ""), now_iso, now_iso,
-                    job.get("source_priority", 0), fp, job["source"], job.get("company_tags", ""), job.get("company_type", ""), job.get("external_job_id")
-                ))
-        
-        conn.commit()
-        new_count = cursor.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-        return new_count - old_count
-    finally:
-        conn.close()
+    original_count = len(dict_jobs)
 
-def merge_jobs(canonical_id: int, duplicate_id: int) -> None:
-    """
-    Merge a duplicate job into a canonical job.
-    Updates merged_sources and source_count on the canonical job,
-    and sets canonical_job_id on the duplicate job so it can be filtered out.
-    """
-    conn = get_connection()
-    try:
-        # Get duplicate details
-        dup = conn.execute("SELECT source, merged_sources FROM jobs WHERE id = ?", (duplicate_id,)).fetchone()
-        canon = conn.execute("SELECT source, merged_sources FROM jobs WHERE id = ?", (canonical_id,)).fetchone()
-        if not dup or not canon:
-            return
-            
-        dup_sources = {s.strip() for s in (dup['merged_sources'] or dup['source']).split(',') if s.strip()}
-        canon_sources = {s.strip() for s in (canon['merged_sources'] or canon['source']).split(',') if s.strip()}
+    # 0. Quality filtering: spam detection + trust scoring
+    skipped_spam = 0
+    quality_jobs = []
+    for job in dict_jobs:
+        spam, reason = is_spam(job)
+        if spam:
+            job["is_spam"] = True
+            job["spam_reason"] = reason
+            skipped_spam += 1
+            logger.debug(f"Skipped spam job: {job.get('title', '?')} | {reason}")
+            continue
         
-        all_sources = canon_sources | dup_sources
-        merged_str = ",".join(sorted(all_sources))
-        count = len(all_sources)
-        
-        # Update Canonical
-        conn.execute(
-            "UPDATE jobs SET merged_sources = ?, source_count = ? WHERE id = ?",
-            (merged_str, count, canonical_id)
+        # Compute trust score
+        trust = calculate_trust_score(job)
+        # Bonus for passing spam check
+        trust += TRUST_SCORE_WEIGHTS["no_spam_signals"]
+        job["trust_score"] = trust
+        job["company_tier"] = get_company_tier(job.get("company", ""))
+        job["is_spam"] = False
+        job["spam_reason"] = None
+
+        # Step 3: Tag for filter tabs (FAANG / work_mode / internship)
+        tag_job(job)
+
+        quality_jobs.append(job)
+
+    if skipped_spam > 0:
+        logger.info(f"Spam filter: {skipped_spam}/{original_count} jobs rejected")
+
+    dict_jobs = quality_jobs
+    
+    # 1. Fuzzy Deduplication
+    unique_jobs = await deduplicator.bulk_deduplicate(dict_jobs)
+    filtered_count = len(dict_jobs) - len(unique_jobs)
+    
+    if filtered_count > 0:
+        logger.info(f"Batch dedup: {len(unique_jobs)} unique, {filtered_count} duplicates dropped")
+
+    inserted_count = 0
+    updated_count = 0
+
+    query = text("""
+        INSERT INTO jobs (
+            company_id, external_id, title, description, apply_url, source,
+            job_type, location, is_remote, status,
+            url_hash, last_verified_at, duplicate_of, freshness_score,
+            trust_score, is_spam, spam_reason, company_tier,
+            is_faang, is_internship, is_hybrid, work_mode
+        ) VALUES (
+            :company_id, :external_id, :title, :description, :apply_url, :source,
+            :job_type, :location, :is_remote, :status,
+            :url_hash, :last_verified_at, :duplicate_of, :freshness_score,
+            :trust_score, :is_spam, :spam_reason, :company_tier,
+            :is_faang, :is_internship, :is_hybrid, :work_mode
         )
-        # Update Duplicate to point to Canonical
-        conn.execute(
-            "UPDATE jobs SET canonical_job_id = ? WHERE id = ?",
-            (canonical_id, duplicate_id)
+        ON CONFLICT (url_hash) DO UPDATE SET
+            company_id       = COALESCE(EXCLUDED.company_id, jobs.company_id),
+            last_verified_at = EXCLUDED.last_verified_at,
+            status           = EXCLUDED.status,
+            duplicate_of     = COALESCE(EXCLUDED.duplicate_of, jobs.duplicate_of),
+            freshness_score  = EXCLUDED.freshness_score,
+            trust_score      = GREATEST(EXCLUDED.trust_score, jobs.trust_score),
+            is_spam          = EXCLUDED.is_spam,
+            spam_reason      = EXCLUDED.spam_reason,
+            company_tier     = EXCLUDED.company_tier,
+            is_faang         = EXCLUDED.is_faang,
+            is_internship    = EXCLUDED.is_internship,
+            is_hybrid        = EXCLUDED.is_hybrid,
+            work_mode        = EXCLUDED.work_mode,
+            is_remote        = EXCLUDED.is_remote
+        RETURNING id, (xmax = 0) AS inserted
+    """)
+
+    async def _do_upsert(session):
+        nonlocal inserted_count, updated_count
+        for job in dict_jobs:
+            url = job.get("apply_url") or job.get("url") or str(uuid.uuid4())
+            url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
+            
+            job_status = 'active'
+            dup_of = job.get('duplicate_of')
+            if dup_of:
+                job_status = 'duplicate'
+                
+            from utils.freshness import freshness_score
+            created_dt = job.get("scraped_at") or datetime.utcnow()
+            job_source = source or job.get("source", "unknown")
+            f_score = freshness_score(created_dt, created_dt, job_source)
+
+            result = await session.execute(query, {
+                "company_id":      company_id or job.get("company_id"),
+                "external_id":     job.get("external_id", ""),
+                "title":           job.get("title", "Unknown"),
+                "description":     job.get("description", ""),
+                "apply_url":       url,
+                "source":          source or job.get("source", "unknown"),
+                "job_type":        job.get("job_type", "full-time"),
+                "location":        job.get("location", ""),
+                "is_remote":       job.get("is_remote", False),
+                "status":          job_status,
+                "url_hash":        url_hash,
+                "last_verified_at": job.get("scraped_at") or datetime.utcnow(),
+                "duplicate_of":    dup_of,
+                "freshness_score": f_score,
+                "trust_score":     job.get("trust_score", 0),
+                "is_spam":         job.get("is_spam", False),
+                "spam_reason":     job.get("spam_reason"),
+                "company_tier":    job.get("company_tier", 0),
+                # tag_job() computed fields
+                "is_faang":        job.get("is_faang", False),
+                "is_internship":   job.get("is_internship", False),
+                "is_hybrid":       job.get("is_hybrid", False),
+                "work_mode":       job.get("work_mode", "onsite"),
+            })
+            row = result.fetchone()
+            if row:
+                job['id'] = row.id
+                job['freshness_score'] = f_score
+                if row.inserted:
+                    inserted_count += 1
+                else:
+                    updated_count += 1
+
+    if db_session:
+        # If passed an active session (e.g. from an existing transaction)
+        await _do_upsert(db_session)
+    else:
+        async with AsyncSessionLocal() as session:
+            await _do_upsert(session)
+            await session.commit()
+
+    # 2. Sync to Typesense
+    try:
+        from search.typesense_sync import typesense_sync
+        active_jobs = [j for j in dict_jobs if not j.get('duplicate_of') and 'id' in j]
+        if active_jobs:
+            await typesense_sync.upsert_batch(active_jobs)
+    except Exception as e:
+        logger.error(f"typesense_sync_error: {e}")
+
+    return inserted_count, updated_count
+
+
+# ─── Job Queries ─────────────────────────────────────────────────────────────
+
+async def _async_search_jobs(query: str, page: int = 1, limit: int = 50) -> dict:
+    """Full-text search using PostgreSQL ts_vector."""
+    offset = (page - 1) * limit
+
+    async with AsyncSessionLocal() as session:
+        count_res = await session.execute(
+            text("""
+                SELECT COUNT(*) FROM jobs
+                WHERE to_tsvector('english', COALESCE(title, '') || ' ' || COALESCE(description, ''))
+                      @@ websearch_to_tsquery('english', :q)
+                  AND status = 'active'
+            """),
+            {"q": query},
         )
-        conn.commit()
-    finally:
-        conn.close()
+        total = count_res.scalar() or 0
+
+        rows_res = await session.execute(
+            text("""
+                SELECT * FROM jobs
+                WHERE to_tsvector('english', COALESCE(title, '') || ' ' || COALESCE(description, ''))
+                      @@ websearch_to_tsquery('english', :q)
+                  AND status = 'active'
+                ORDER BY ts_rank(
+                    to_tsvector('english', COALESCE(title, '') || ' ' || COALESCE(description, '')),
+                    websearch_to_tsquery('english', :q)
+                ) DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {"q": query, "limit": limit, "offset": offset},
+        )
+        rows = rows_res.fetchall()
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "results": [dict(r._mapping) for r in rows],
+    }
 
 
-def search_jobs(query: str, limit: int = 50) -> list[dict]:
-    """Full-text search across job listings using FTS5."""
-    conn = get_connection()
-    rows = conn.execute("""
-        SELECT jobs.*
-        FROM jobs_fts
-        JOIN jobs ON jobs.id = jobs_fts.rowid
-        WHERE jobs_fts MATCH ?
-        ORDER BY rank
-        LIMIT ?
-    """, (query, limit)).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+async def _async_get_all_jobs(
+    search: str = "",
+    job_type: str = "",
+    source: Optional[str] = None,
+    status: Optional[str] = None,
+    page: int = 1,
+    limit: int = 20,
+) -> dict:
+    """Paginated job listing with optional filters."""
+    if search and search.strip():
+        return await _async_search_jobs(search.strip(), page=page, limit=limit)
 
+    offset = (page - 1) * limit
+    where_parts = ["status = 'active'"]
+    params: dict = {}
 
-def get_all_jobs(source: Optional[str] = None, status: Optional[str] = None,
-                 limit: int = 100) -> list[dict]:
-    """Retrieve canonical jobs with optional filtering by source and status."""
-    conn = get_connection()
-    # Only return jobs that are canonical (canonical_job_id IS NULL)
-    query = "SELECT * FROM jobs WHERE canonical_job_id IS NULL"
-    params: list = []
+    if job_type:
+        if job_type == "internship":
+            where_parts.append("job_type = 'internship'")
+        elif job_type == "fulltime":
+            where_parts.append("job_type = 'fulltime'")
+        elif job_type == "remote":
+            where_parts.append("is_remote = true")
+        else:
+            where_parts.append("job_type = :job_type")
+            params["job_type"] = job_type
 
     if source:
-        query += " AND source = ?"
-        params.append(source)
+        where_parts.append("source = :source")
+        params["source"] = source
     if status:
-        query += " AND status = ?"
-        params.append(status)
+        where_parts[0] = "status = :status"
+        params["status"] = status
 
-    query += " ORDER BY scraped_at DESC LIMIT ?"
-    params.append(limit)
+    where_sql = " AND ".join(where_parts)
 
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    async with AsyncSessionLocal() as session:
+        count_res = await session.execute(
+            text(f"SELECT COUNT(*) FROM jobs WHERE {where_sql}"), params
+        )
+        total = count_res.scalar() or 0
+
+        params["limit"] = limit
+        params["offset"] = offset
+        rows_res = await session.execute(
+            text(f"SELECT * FROM jobs WHERE {where_sql} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"),
+            params,
+        )
+        rows = rows_res.fetchall()
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "results": [dict(r._mapping) for r in rows],
+    }
+
+
+def get_all_jobs(
+    search: str = "",
+    job_type: str = "",
+    source: Optional[str] = None,
+    status: Optional[str] = None,
+    page: int = 1,
+    limit: int = 20,
+) -> dict:
+    """Sync wrapper — paginated job listing with optional filters."""
+    return _run_async(
+        _async_get_all_jobs(search=search, job_type=job_type, source=source, status=status, page=page, limit=limit)
+    )
+
+
+# ─── Stats (cached in-memory, 5 min TTL) ────────────────────────────────────
+
+_stats_cache: dict = {}
+_stats_cache_ts: float = 0.0
+_STATS_TTL: float = 300.0
+
+
+async def _async_get_job_stats() -> dict:
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(text("""
+            SELECT
+                COUNT(*)                                             AS total,
+                SUM(CASE WHEN job_type = 'internship' THEN 1 ELSE 0 END) AS internships,
+                SUM(CASE WHEN job_type = 'fulltime'   THEN 1 ELSE 0 END) AS fulltime,
+                SUM(CASE WHEN is_remote = true         THEN 1 ELSE 0 END) AS remote
+            FROM jobs
+            WHERE status = 'active'
+        """))
+        row = res.fetchone()
+
+    return {
+        "total": row[0] or 0 if row else 0,
+        "internships": row[1] or 0 if row else 0,
+        "fulltime": row[2] or 0 if row else 0,
+        "remote": row[3] or 0 if row else 0,
+    }
 
 
 def get_job_stats() -> dict:
-    """Return summary statistics about the jobs database."""
-    conn = get_connection()
-    stats = {}
-
-    stats["total"] = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-
-    for row in conn.execute("SELECT source, COUNT(*) as cnt FROM jobs GROUP BY source"):
-        stats[f"source_{row['source']}"] = row["cnt"]
-
-    for row in conn.execute("SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status"):
-        stats[f"status_{row['status']}"] = row["cnt"]
-
-    stats["avg_match_score"] = conn.execute(
-        "SELECT COALESCE(AVG(match_score), 0) FROM jobs"
-    ).fetchone()[0]
-
-    conn.close()
-    return stats
+    """Fast lightweight stats — cached in memory for 5 minutes."""
+    global _stats_cache, _stats_cache_ts
+    now = _time.time()
+    if _stats_cache and (now - _stats_cache_ts) < _STATS_TTL:
+        return _stats_cache
+    _stats_cache = _run_async(_async_get_job_stats())
+    _stats_cache_ts = now
+    return _stats_cache
 
 
-def update_job_status(job_id: int, status: str) -> None:
-    """Update the status of a job listing."""
-    conn = get_connection()
-    now = datetime.now().isoformat() if status == "applied" else None
-    conn.execute(
-        "UPDATE jobs SET status = ?, applied_at = COALESCE(?, applied_at) WHERE id = ?",
-        (status, now, job_id),
-    )
-    conn.commit()
-    conn.close()
+# ─── Scraping State (cursor persistence) ────────────────────────────────────
+
+async def _async_get_scraping_state(source: str) -> dict:
+    async with AsyncSessionLocal() as session:
+        try:
+            res = await session.execute(
+                text("SELECT state_data FROM scraping_state WHERE source = :source"),
+                {"source": source},
+            )
+            row = res.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+        except Exception:
+            pass
+    return {}
 
 
-def update_job_enrichment(job_id: int, fields: dict) -> None:
-    """
-    Update enriched fields and classification for a job.
-    """
-    if not fields:
-        return
-        
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
-    values = list(fields.values()) + [job_id]
-    
-    conn = get_connection()
-    try:
-        conn.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", values)
-        conn.commit()
-    finally:
-        conn.close()
-
-def update_job_fields(job_id: int, fields: dict) -> None:
-    """
-    Backfill specific fields for an existing job row.
-    Only updates keys whose values are non-empty strings or non-zero numbers.
-    The existing jobs_au trigger keeps the FTS index in sync automatically.
-    """
-    if not fields:
-        return
-
-    # Only write non-empty, non-None values
-    updates = {
-        k: v for k, v in fields.items()
-        if v is not None and v != "" and v != 0 and v != 0.0
-    }
-    if not updates:
-        return
-
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [job_id]
-
-    conn = get_connection()
-    try:
-        conn.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", values)
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_unenriched_jobs(limit: int = 100) -> list[dict]:
-    """
-    Fetch jobs from the queue that haven't been enriched yet.
-    """
-    conn = get_connection()
-    query = "SELECT * FROM jobs WHERE is_enriched = 0 ORDER BY scraped_at DESC LIMIT ?"
-    rows = conn.execute(query, (limit,)).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-
-def get_jobs_missing_description(source: Optional[str] = None) -> list[dict]:
-    """
-    Return jobs where description is empty — useful for a future --refresh flag.
-    Returns minimal dicts with keys: id, url, source.
-    """
-    conn = get_connection()
-    query = "SELECT id, url, source FROM jobs WHERE (description = '' OR description IS NULL)"
-    params: list = []
-    if source:
-        query += " AND source = ?"
-        params.append(source)
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-
-def get_user_profile() -> Optional[dict]:
-    """Retrieve the single user profile."""
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM user_profile WHERE id = 1").fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def upsert_user_profile(profile_data: dict) -> None:
-    """Upsert the single user profile."""
-    conn = get_connection()
-    now_iso = datetime.now().isoformat()
-    
-    # Extract known keys to prevent SQL injection
-    fields = [
-        "education_year", "degree", "skills", "preferred_roles",
-        "remote_preference", "expected_salary", "is_fresher_seeking",
-        "is_internship_seeking"
-    ]
-    
-    columns = ["id"]
-    values = [1]
-    placeholders = ["?"]
-    
-    for f in fields:
-        if f in profile_data:
-            columns.append(f)
-            values.append(profile_data[f])
-            placeholders.append("?")
-            
-    columns.append("updated_at")
-    values.append(now_iso)
-    placeholders.append("?")
-    
-    col_str = ", ".join(columns)
-    val_str = ", ".join(placeholders)
-    
-    set_str = ", ".join([f"{c} = excluded.{c}" for c in columns if c != "id"])
-    
-    query = f"""
-        INSERT INTO user_profile ({col_str})
-        VALUES ({val_str})
-        ON CONFLICT(id) DO UPDATE SET {set_str}
-    """
-    
-    conn.execute(query, values)
-    conn.commit()
-    conn.close()
+async def _async_save_scraping_state(source: str, state: dict) -> None:
+    async with AsyncSessionLocal() as session:
+        try:
+            now_iso = datetime.now().isoformat()
+            await session.execute(
+                text("""
+                    INSERT INTO scraping_state (source, state_data, updated_at)
+                    VALUES (:source, :state_data, :updated_at)
+                    ON CONFLICT (source) DO UPDATE SET
+                        state_data = EXCLUDED.state_data,
+                        updated_at = EXCLUDED.updated_at
+                """),
+                {"source": source, "state_data": json.dumps(state), "updated_at": now_iso},
+            )
+            await session.commit()
+        except Exception:
+            pass
 
 
 def get_scraping_state(source: str) -> dict:
-    import json
     """Retrieve the last scraping cursor/state for a source."""
-    conn = get_connection()
-    try:
-        row = conn.execute("SELECT state_data FROM scraping_state WHERE source = ?", (source,)).fetchone()
-        if row and row['state_data']:
-            return json.loads(row['state_data'])
-        return {}
-    except sqlite3.OperationalError:
-        return {}
-    finally:
-        conn.close()
+    return _run_async(_async_get_scraping_state(source))
 
 
-def save_scraping_state(source: str, state: dict):
-    import json
+def save_scraping_state(source: str, state: dict) -> None:
     """Save the scraping cursor/state for a source."""
-    conn = get_connection()
-    try:
-        now_iso = datetime.now().isoformat()
-        conn.execute(
-            "INSERT INTO scraping_state (source, state_data, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(source) DO UPDATE SET state_data = excluded.state_data, updated_at = excluded.updated_at",
-            (source, json.dumps(state), now_iso)
-        )
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-    finally:
-        conn.close()
+    _run_async(_async_save_scraping_state(source, state))
 
+
+# ─── Main entrypoint ────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     init_db()
-    print(f"[OK] Database initialized at {DB_PATH}")
+    print("[OK] PostgreSQL database initialized.")

@@ -24,4 +24,7 @@ google-auth
 reportlab
 python-docx
 rich
-sqlite-utils
+rapidfuzz
+datasketch
+
+typesense>=0.19.0

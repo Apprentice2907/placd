@@ -9,9 +9,10 @@ from sqlalchemy import text
 from db.connection import AsyncSessionLocal
 
 from utils.url_classifier import is_job_listing_page, is_same_job, normalize_apply_url
+from utils.async_utils import run_async
+from search.typesense_sync import typesense_sync
 
-# We can reuse the redis client from our base scraper
-from scrapers.ats.base import redis_client
+from utils.redis import redis_client
 
 logger = structlog.get_logger(__name__)
 
@@ -94,13 +95,14 @@ async def _verify_new_jobs():
                         text("UPDATE jobs SET status = 'expired', expires_at = NOW() WHERE id = :id"),
                         {"id": job.id}
                     )
+                    await typesense_sync.delete_job(str(job.id))
                     
         await session.commit()
 
 @shared_task(name="verify_new_jobs_task")
 def verify_new_jobs_task():
     """Run within 1 hour of any new job being ingested."""
-    asyncio.run(_verify_new_jobs())
+    run_async(_verify_new_jobs())
 
 
 async def _daily_liveness_sweep():
@@ -160,6 +162,7 @@ async def _apply_liveness_updates(session, updates):
                 text("UPDATE jobs SET status = 'expired', expires_at = NOW() WHERE id = :id"),
                 {"id": job_id}
             )
+            await typesense_sync.delete_job(str(job_id))
         elif status == "retry":
             # For 429/503 we can rely on celery retry for this specific ID if we wanted,
             # but since this is a batch sweep, we can simply leave last_verified_at alone,
@@ -173,7 +176,7 @@ async def _apply_liveness_updates(session, updates):
 @shared_task(name="daily_liveness_sweep_task")
 def daily_liveness_sweep_task():
     """Run every 24 hours."""
-    asyncio.run(_daily_liveness_sweep())
+    run_async(_daily_liveness_sweep())
 
 
 async def _mark_stale_jobs():
@@ -191,7 +194,7 @@ async def _mark_stale_jobs():
 @shared_task(name="mark_stale_jobs_task")
 def mark_stale_jobs_task():
     """Run every 6 hours. Mark jobs unverified if not seen recently."""
-    asyncio.run(_mark_stale_jobs())
+    run_async(_mark_stale_jobs())
 
 
 async def _reactivate_reopened_jobs():
@@ -233,9 +236,64 @@ async def _reactivate_reopened_jobs():
                     )
                     logger.info("job_reactivated", job_id=str(job.id))
                     
+                    # Optional: Re-fetch job data to upsert into Typesense, or let next scrape handle it.
+                    # We will let the next scrape/enrichment handle full Typesense data, 
+                    # but we could also do a targeted upsert here if we had all fields.
+                    
         await session.commit()
 
 @shared_task(name="reactivate_reopened_jobs_task")
 def reactivate_reopened_jobs_task():
     """Some jobs get reposted at the same URL."""
-    asyncio.run(_reactivate_reopened_jobs())
+    run_async(_reactivate_reopened_jobs())
+
+async def _update_freshness_scores():
+    logger.info("starting_freshness_update")
+    from utils.freshness import freshness_score
+    
+    query = text("""
+        SELECT id, created_at, source 
+        FROM jobs 
+        WHERE status = 'active'
+    """)
+    
+    updates = []
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(query)
+        jobs = result.fetchall()
+        
+        now = datetime.utcnow()
+        for job in jobs:
+            # updated_at isn't explicitly used currently, use created_at
+            score = freshness_score(job.created_at, job.created_at, job.source)
+            updates.append({"id": job.id, "freshness_score": score})
+            
+        if not updates:
+            return
+            
+        # Bulk update freshness_score
+        # For huge tables, this might need batching, but we batch by 1000s
+        for i in range(0, len(updates), 1000):
+            batch = updates[i:i+1000]
+            await session.execute(
+                text("UPDATE jobs SET freshness_score = :freshness_score WHERE id = :id"),
+                batch
+            )
+        await session.commit()
+        logger.info("completed_freshness_update", updated_count=len(updates))
+        
+        # We also need to update Typesense
+        # We can just re-fetch the jobs and batch update them in Typesense
+        # or we could do a partial update since we just need to update freshness_score
+        try:
+            for i in range(0, len(updates), 500):
+                batch = updates[i:i+500]
+                ts_docs = [{"id": str(u["id"]), "freshness_score": u["freshness_score"]} for u in batch]
+                await typesense_sync.upsert_batch(ts_docs, batch_size=500)
+        except Exception as e:
+            logger.error("typesense_freshness_sync_error", error=str(e))
+
+@shared_task(name="update_freshness_scores_task")
+def update_freshness_scores_task():
+    """Run nightly to recalculate freshness for all active jobs."""
+    run_async(_update_freshness_scores())

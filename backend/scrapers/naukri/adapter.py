@@ -29,6 +29,25 @@ from utils.config import (
     USER_AGENT,
     NAUKRI_CONCURRENCY
 )
+from scrapers.shared.utils import parse_relative_date, extract_salary_from_text, detect_remote, clean_description
+
+NAUKRI_KEYWORDS = [
+    "software developer", "software engineer", "web developer",
+    "python developer", "java developer", "react developer",
+    "node js developer", "angular developer", "vue js developer",
+    "android developer", "ios developer", "flutter developer",
+    "data scientist", "machine learning", "deep learning",
+    "data analyst", "business analyst", "data engineer",
+    "devops", "aws", "azure", "gcp", "kubernetes", "docker",
+    "full stack", "backend developer", "frontend developer",
+    "php developer", "ruby on rails", ".net developer",
+    "salesforce", "sap", "oracle", "cybersecurity",
+    "blockchain", "game developer", "embedded systems",
+    "qa engineer", "test automation", "performance testing",
+    "product manager", "scrum master", "agile coach",
+    "ui designer", "ux designer", "graphic designer",
+    "technical writer", "solution architect", "system architect",
+]
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -51,10 +70,10 @@ _API_HEADERS: dict[str, str] = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def scrape_naukri(
-    query: str,
+    query: str = "",
     location: str = "",
-    max_pages: int = MAX_PAGES,
-    fresher_mode: bool = True,
+    max_pages: int = 50,
+    fresher_mode: bool = False,
 ) -> tuple[list[dict], dict]:
     """
     Scrape Naukri job listings via the v1 JSON API async.
@@ -70,11 +89,7 @@ async def scrape_naukri(
         "total_available": 0,
     }
 
-    effective_query = f"{query} fresher" if fresher_mode else query
-    effective_loc   = location or "india"
-
-    log.info("Naukri scrape async: query=%r location=%r pages=%d",
-             effective_query, effective_loc, max_pages)
+    log.info("Naukri scrape async: location=%r pages=%d", location, max_pages)
 
     try:
         import curl_cffi.requests as cfr
@@ -84,20 +99,26 @@ async def scrape_naukri(
         stats["api_blocked"] = True
         return [], stats
 
+    all_jobs = []
     try:
         console.print("[dim]   Warming Naukri session...[/dim]")
         warm_ok = await _warm_session(session)
         if not warm_ok:
             console.print("[yellow]   Session warm failed — trying without cookies.[/yellow]")
 
-        jobs = await _scrape_pages(session, effective_query, effective_loc,
-                                   max_pages, fresher_mode, stats)
+        queries = [query] if query else NAUKRI_KEYWORDS
+        
+        for q in queries:
+            effective_query = f"{q} fresher" if fresher_mode else q
+            jobs = await _scrape_pages(session, effective_query, location or "india",
+                                       max_pages, fresher_mode, stats)
+            all_jobs.extend(jobs)
     finally:
         await session.close()
 
     log.info("Naukri scrape complete: fetched=%d skipped_empty=%d skipped_error=%d pages=%d",
              stats["fetched"], stats["skipped_empty"], stats["skipped_error"], stats["pages_fetched"])
-    return jobs, stats
+    return all_jobs, stats
 
 
 async def _scrape_pages(
@@ -187,8 +208,8 @@ async def _fetch_page(
         raw_jobs: list[dict] = data.get("list", [])
         total: int           = int(data.get("totaljobs", 0))
         
-        # Respectful delay after an API request
-        await asyncio.sleep(random.uniform(*REQUEST_DELAY))
+        # Max 10 req/min -> 8-12 seconds jitter
+        await asyncio.sleep(random.uniform(8.0, 12.0))
         
         return raw_jobs, total, True
 
@@ -211,6 +232,7 @@ def _parse_job(raw: dict, fresher_mode: bool = True) -> Optional[dict]:
 
     min_exp = raw.get("minExp")
     max_exp = raw.get("maxExp")
+    min_e, max_e = 0, 0
     if min_exp is not None and max_exp is not None:
         try:
             min_e = int(min_exp)
@@ -234,13 +256,25 @@ def _parse_job(raw: dict, fresher_mode: bool = True) -> Optional[dict]:
             pass
 
     salary = _normalise_salary(raw)
+    sal_min, sal_max, sal_curr = extract_salary_from_text(salary)
 
     raw_desc = raw.get("jobDesc") or raw.get("tupleDesc") or ""
-    description = _strip_html(raw_desc).strip()
+    description = clean_description(raw_desc).strip()
+    if not sal_min and not sal_max:
+        sal_min, sal_max, sal_curr = extract_salary_from_text(description)
 
     keywords_raw = raw.get("keywords") or ""
     seen: set[str] = set()
     unique_skills: list[str] = []
+    
+    # Also grab skills from keySkills array if present
+    key_skills = raw.get("keySkills") or []
+    if isinstance(key_skills, list):
+        for sk in key_skills:
+            if isinstance(sk, dict) and "label" in sk:
+                unique_skills.append(sk["label"])
+                seen.add(sk["label"].lower())
+
     for s in (s.strip() for s in keywords_raw.split(",") if s.strip()):
         low = s.lower()
         if low not in seen:
@@ -248,16 +282,20 @@ def _parse_job(raw: dict, fresher_mode: bool = True) -> Optional[dict]:
             unique_skills.append(s)
     skills = ", ".join(unique_skills)
 
-    posted_date = str(raw.get("addDate") or raw.get("dateAdded") or "").strip()
+    posted_date_raw = str(raw.get("addDate") or raw.get("dateAdded") or "").strip()
+    posted_date = parse_relative_date(posted_date_raw).isoformat()
 
     emp_type   = raw.get("employmentType") or ""
     job_code   = raw.get("jobtype") or ""
     if job_code == "i":
-        job_type = f"Internship — {experience}" if experience else "Internship"
+        job_type = f"Internship"
     elif experience:
-        job_type = f"Fresher/Entry — {experience}"
+        job_type = f"Entry"
     else:
         job_type = emp_type or "Full Time"
+
+    is_wfh = raw.get("workFromHome", False)
+    is_remote = is_wfh or detect_remote(title, location, description)
 
     return {
         "title":         title,
@@ -265,6 +303,9 @@ def _parse_job(raw: dict, fresher_mode: bool = True) -> Optional[dict]:
         "location":      location,
         "job_type":      job_type,
         "salary":        salary,
+        "salary_min":    sal_min,
+        "salary_max":    sal_max,
+        "salary_currency": sal_curr,
         "description":   description,
         "skills":        skills,
         "url":           url,
@@ -273,7 +314,13 @@ def _parse_job(raw: dict, fresher_mode: bool = True) -> Optional[dict]:
         "hiring_status": "",
         "duration":      str(raw.get("internshipDuration") or ""),
         "experience":    experience,
+        "experience_min": min_e,
+        "experience_max": max_e,
         "posted_date":   posted_date,
+        "company_rating": str(raw.get("ambitionBoxData", {}).get("aggregateRating", "")),
+        "applicants":    int(raw.get("jobApplications", 0)) if raw.get("jobApplications") else 0,
+        "is_remote":     is_remote,
+        "tags":          raw.get("jobTags", [])
     }
 
 
@@ -358,6 +405,10 @@ async def _get_with_retry(
                 continue
 
             if resp.status_code in (403, 406, 401):
+                log.warning(f"Session expired with {resp.status_code}, refreshing...")
+                await _warm_session(session)
+                if attempt < max_retries:
+                    continue
                 return None 
 
             if resp.status_code >= 500:

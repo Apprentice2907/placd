@@ -1,4 +1,19 @@
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS discovered_companies (
+    id SERIAL PRIMARY KEY,
+    slug VARCHAR(200) NOT NULL,
+    platform VARCHAR(50) NOT NULL,
+    source VARCHAR(50) NOT NULL,
+    first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+    last_scraped_at TIMESTAMPTZ,
+    scrape_status VARCHAR(20) DEFAULT 'pending',
+    job_count_last INT DEFAULT 0,
+    UNIQUE(slug, platform)
+);
+CREATE INDEX IF NOT EXISTS idx_discovered_pending ON discovered_companies(platform, scrape_status) 
+WHERE scrape_status = 'pending';
 
 CREATE TABLE IF NOT EXISTS companies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -43,9 +58,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     url_hash TEXT UNIQUE,
     content_hash TEXT,
+    duplicate_of TEXT,
     application_open_date DATE,
-    application_close_date DATE,
-    hiring_cycle TEXT
+    hiring_cycle TEXT,
+    enriched_at TIMESTAMPTZ,
+    enrichment_cost_usd NUMERIC(10, 4) DEFAULT 0.0,
+    freshness_score FLOAT DEFAULT 1.0
 );
 
 CREATE TABLE IF NOT EXISTS sources (
@@ -124,3 +142,33 @@ CREATE TABLE IF NOT EXISTS company_hiring_windows (
 );
 CREATE INDEX IF NOT EXISTS idx_company_hiring_windows_name ON company_hiring_windows(company_name);
 CREATE INDEX IF NOT EXISTS idx_company_hiring_windows_date ON company_hiring_windows(event_date);
+
+-- ── Scraping State (cursor persistence for incremental scrapers) ─────────
+CREATE TABLE IF NOT EXISTS scraping_state (
+    source TEXT PRIMARY KEY,
+    state_data TEXT DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── Source Health Tracking ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS source_health (
+    source TEXT PRIMARY KEY,
+    last_successful_scrape TIMESTAMPTZ DEFAULT NULL,
+    jobs_added INTEGER DEFAULT 0,
+    error_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'unknown'
+);
+
+-- ── User Profile (single-tenant) ────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_profile (
+    id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    education_year INTEGER DEFAULT NULL,
+    degree TEXT DEFAULT '',
+    skills TEXT DEFAULT '',
+    preferred_roles TEXT DEFAULT '',
+    remote_preference BOOLEAN DEFAULT FALSE,
+    expected_salary TEXT DEFAULT '',
+    is_fresher_seeking BOOLEAN DEFAULT FALSE,
+    is_internship_seeking BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);

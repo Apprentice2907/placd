@@ -5,7 +5,7 @@ from urllib.parse import quote_plus
 import structlog
 from playwright.async_api import BrowserContext, TimeoutError as PlaywrightTimeout
 
-from scrapers.ats.base import JobData
+from schemas.job import JobData
 
 logger = structlog.get_logger(__name__)
 

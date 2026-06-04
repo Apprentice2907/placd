@@ -1,8 +1,8 @@
-import asyncio
 import structlog
 from celery import shared_task
 from sqlalchemy import text
 from db.connection import AsyncSessionLocal
+from utils.async_utils import run_async
 
 logger = structlog.get_logger(__name__)
 
@@ -66,4 +66,4 @@ def refresh_calendar_from_jobs():
     - Group jobs by company, find earliest first_seen_at as proxy open date.
     - Insert/upsert into company_hiring_windows.
     """
-    asyncio.run(_refresh_calendar())
+    run_async(_refresh_calendar())

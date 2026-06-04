@@ -47,9 +47,8 @@ async def seed():
                 print(f"Skipped {comp['name']} (already exists)")
                 
             # Queue Celery task for the company
-            if comp["ats_type"] == "greenhouse": # Currently we only fully support Greenhouse parser
-                print(f"Queueing scrape task for {comp['name']}...")
-                crawl_company_task.delay(comp_id)
+            print(f"Queueing scrape task for {comp['name']}...")
+            crawl_company_task.delay(comp_id)
 
         await session.commit()
         print("Done seeding and queueing!")

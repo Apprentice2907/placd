@@ -1,209 +1,176 @@
-"""
-Placd — Internshala Scraper (v3 - Async Discovery)
-
-Fast Discovery Phase:
-  - Paginate search results concurrently using httpx.AsyncClient
-  - Collect listing URLs and preview data (title, company, location, salary)
-  - Yield "raw" lightweight jobs immediately
-  - Enrichment (descriptions, skills) happens later in the background queue
-"""
-
 import asyncio
 import random
 import logging
 import httpx
 from bs4 import BeautifulSoup
-from rich.console import Console
+from scrapers.shared.base_adapter import UnifiedAdapter
+from scrapers.shared.utils import clean_description, is_valid_apply_url, extract_salary_from_text, parse_relative_date
 
-from utils.config import (
-    USER_AGENT, REQUEST_TIMEOUT, REQUEST_DELAY,
-    MAX_PAGES, MAX_RETRIES, RETRY_BACKOFF,
-    INTERNSHALA_CONCURRENCY
-)
-
-console = Console()
 log = logging.getLogger(__name__)
-
 BASE_URL = "https://internshala.com"
 
 _DEFAULT_HEADERS: dict[str, str] = {
-    "User-Agent": USER_AGENT,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+class InternshalaAdapter(UnifiedAdapter):
+    source = "internshala"
+    rpm = 60
+    api_domain = "internshala.com"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Public API
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def scrape_internshala(
-    query: str,
-    location: str = "",
-    max_pages: int = MAX_PAGES,
-) -> list[dict]:
-    """
-    Fast discovery phase for Internshala.
-    Fetches search pages asynchronously, extracts preview cards, and yields raw jobs.
-    """
-    search_url = _build_search_url(query, location)
-    semaphore = asyncio.Semaphore(INTERNSHALA_CONCURRENCY)
-
-    async with httpx.AsyncClient(headers=_DEFAULT_HEADERS, timeout=REQUEST_TIMEOUT) as client:
-        # We need to fetch page 1 to know if there are more pages, but for speed,
-        # we can blindly fetch pages 1..max_pages concurrently. If a page is empty,
-        # we'll just ignore it. Internshala handles out-of-bounds pagination gracefully.
+    async def fetch_jobs(self) -> list[dict]:
+        all_jobs = []
+        semaphore = asyncio.Semaphore(5)
+        detail_semaphore = asyncio.Semaphore(10)
         
-        tasks = [
-            _fetch_search_page(client, search_url, page, max_pages, semaphore)
-            for page in range(1, max_pages + 1)
-        ]
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        async with self.get_client() as client:
+            client.headers.update(_DEFAULT_HEADERS)
+            
+            # 1. Fetch Internships (up to 50 pages)
+            internship_url = f"{BASE_URL}/internships"
+            internship_tasks = [
+                self._fetch_search_page(client, internship_url, page, True, semaphore)
+                for page in range(1, 51)
+            ]
+            
+            # 2. Fetch Jobs (up to 100 pages)
+            jobs_url = f"{BASE_URL}/jobs"
+            job_tasks = [
+                self._fetch_search_page(client, jobs_url, page, False, semaphore)
+                for page in range(1, 101)
+            ]
+            
+            # Run discovery
+            log.info("Internshala: Discovering jobs & internships...")
+            results = await asyncio.gather(*(internship_tasks + job_tasks), return_exceptions=True)
+            
+            discovered_jobs = []
+            seen_urls = set()
+            for res in results:
+                if isinstance(res, list):
+                    for job in res:
+                        if job["url"] not in seen_urls:
+                            seen_urls.add(job["url"])
+                            discovered_jobs.append(job)
+            
+            log.info(f"Internshala: Discovered {len(discovered_jobs)} raw jobs. Fetching details...")
+            
+            # 3. Fetch details
+            detail_tasks = [
+                self._fetch_job_details(client, job, detail_semaphore)
+                for job in discovered_jobs
+            ]
+            
+            enriched_results = await asyncio.gather(*detail_tasks, return_exceptions=True)
+            for res in enriched_results:
+                if isinstance(res, dict) and res:
+                    all_jobs.append(res)
+                    
+        return all_jobs
 
-    jobs: list[dict] = []
-    seen: set[str] = set()
-
-    for result in results:
-        if isinstance(result, Exception):
-            log.warning("Internshala page fetch error: %s", result)
-            continue
-        
-        for job in result:
-            if job["url"] not in seen:
-                seen.add(job["url"])
-                jobs.append(job)
-
-    return jobs
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Internal
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def _fetch_search_page(
-    client: httpx.AsyncClient,
-    search_url: str,
-    page: int,
-    max_pages: int,
-    semaphore: asyncio.Semaphore,
-) -> list[dict]:
-    """Fetch a single search results page and extract preview jobs."""
-    page_url = f"{search_url}/page-{page}" if page > 1 else search_url
-    
-    async with semaphore:
-        console.print(f"[dim]     Search page {page}/{max_pages}...[/dim]")
-        resp = await _get_with_retry(client, page_url)
-        
-        if not resp:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        cards = soup.select(".individual_internship")
-        
+    async def _fetch_search_page(self, client: httpx.AsyncClient, base_url: str, page: int, is_internship: bool, semaphore: asyncio.Semaphore) -> list[dict]:
+        page_url = f"{base_url}/page-{page}" if page > 1 else base_url
         jobs = []
-        for card in cards:
-            url, preview = _extract_url_and_preview(card)
-            if url:
-                jobs.append({
-                    "url": url,
-                    "title": preview.get("title", ""),
-                    "company": preview.get("company", ""),
-                    "location": preview.get("location", ""),
-                    "salary": preview.get("salary", ""),
-                    "source": "internshala",
-                    "description": "",  # To be enriched later
-                    "skills": "",       # To be enriched later
-                    "source_priority": 1, # Normal priority
-                })
         
+        async with semaphore:
+            try:
+                resp = await self._fetch_with_retry(client, page_url)
+                soup = BeautifulSoup(resp.text, "html.parser")
+                cards = soup.select(".individual_internship")
+                
+                if not cards:
+                    return jobs
+                    
+                for card in cards:
+                    url = ""
+                    el = card.select_one(".view_detail_button") or card.select_one(".profile a[href*='/internship/'], .job-internship-name a")
+                    if el and el.get("href"):
+                        href = el["href"]
+                        url = href if href.startswith("http") else f"{BASE_URL}{href}"
+                        
+                    if not url or not is_valid_apply_url(url):
+                        continue
+                        
+                    title_el = card.select_one(".profile a, h3.heading_4_5 a, .job-internship-name a")
+                    company_el = card.select_one(".company_name a, h4.heading_6 a, .company-name")
+                    loc_el = card.select_one(".locations a, #location_names a, .location_link")
+                    salary_el = card.select_one(".stipend, .desktop-text .stipend")
+                    
+                    is_wfh = False
+                    if loc_el and ("work from home" in loc_el.get_text().lower() or "remote" in loc_el.get_text().lower()):
+                        is_wfh = True
+
+                    jobs.append({
+                        "url": url.split("?")[0],
+                        "apply_url": url.split("?")[0],
+                        "title": title_el.get_text(strip=True) if title_el else "",
+                        "company": company_el.get_text(strip=True) if company_el else "",
+                        "location": loc_el.get_text(strip=True) if loc_el else "",
+                        "salary": salary_el.get_text(strip=True) if salary_el else "",
+                        "job_type": "internship" if is_internship else "full-time",
+                        "is_remote": is_wfh,
+                        "source": self.source,
+                        "source_priority": 1,
+                    })
+                    
+                await asyncio.sleep(1) # respectful delay
+            except Exception as e:
+                log.debug(f"Internshala search page error {page_url}: {e}")
+                
         return jobs
 
-
-def _extract_url_and_preview(card: BeautifulSoup) -> tuple[str, dict]:
-    """Extract the detail-page URL and preview fields from a search result card."""
-    url = ""
-    for selector in (
-        "a.view_detail_button",
-        ".profile a[href*='/internship/']",
-        "h3.heading_4_5 a",
-        ".job-internship-name a",
-    ):
-        el = card.select_one(selector)
-        if el and el.get("href"):
-            href = el["href"]
-            url = href if href.startswith("http") else f"{BASE_URL}{href}"
-            break
-
-    preview = {
-        "title":    _text(card, ".profile a, h3.heading_4_5 a, .job-internship-name a"),
-        "company":  _text(card, ".company_name a, h4.heading_6 a, .company-name"),
-        "location": _text(card, ".locations a, #location_names a, .location_link"),
-        "salary":   _text(card, ".stipend, .desktop-text .stipend"),
-    }
-    return url, preview
-
-
-def _text(soup: BeautifulSoup, selector: str) -> str:
-    el = soup.select_one(selector)
-    return el.get_text(strip=True) if el else ""
-
-
-def _build_search_url(query: str, location: str) -> str:
-    query_slug = query.lower().strip().replace(" ", "-")
-    url = f"{BASE_URL}/internships/{query_slug}-internship"
-    if location and location.lower() not in ("india", ""):
-        loc_slug = location.lower().strip().replace(" ", "-")
-        url += f"/in-{loc_slug}"
-    return url
-
-
-async def _get_with_retry(
-    client: httpx.AsyncClient,
-    url: str,
-    max_retries: int = MAX_RETRIES,
-) -> httpx.Response | None:
-    for attempt in range(max_retries + 1):
-        try:
-            resp = await client.get(url)
-
-            if resp.status_code == 429:
-                wait = RETRY_BACKOFF ** (attempt + 1) + random.uniform(1.0, 3.0)
-                await asyncio.sleep(wait)
-                continue
-
-            if resp.status_code >= 500:
-                wait = RETRY_BACKOFF ** attempt
-                if attempt < max_retries:
-                    await asyncio.sleep(wait)
-                    continue
-                return None
-
-            resp.raise_for_status()
-            return resp
-
-        except httpx.RequestError as exc:
-            wait = RETRY_BACKOFF ** attempt
-            if attempt < max_retries:
-                await asyncio.sleep(wait)
-            else:
-                log.warning(f"Request error ({url}): {exc}")
-                return None
-
-    return None
+    async def _fetch_job_details(self, client: httpx.AsyncClient, job: dict, semaphore: asyncio.Semaphore) -> dict:
+        async with semaphore:
+            try:
+                resp = await self._fetch_with_retry(client, job["url"])
+                soup = BeautifulSoup(resp.text, "html.parser")
+                
+                # Description
+                desc_el = soup.select_one(".text-container, .job_description")
+                if desc_el:
+                    job["description"] = clean_description(desc_el.get_text(separator="\n"))
+                else:
+                    job["description"] = ""
+                    
+                # Skills
+                skill_els = soup.select(".round_tabs")
+                skills = [s.get_text(strip=True) for s in skill_els if s.get_text(strip=True)]
+                job["skills"] = ", ".join(skills)
+                
+                # Applicants
+                app_el = soup.select_one(".applications_message")
+                if app_el:
+                    import re
+                    match = re.search(r'(\d+)', app_el.get_text())
+                    if match:
+                        job["applicants"] = int(match.group(1))
+                        
+                # Date posted (Internshala often says 'Posted 3 weeks ago' in a container)
+                status_el = soup.select_one(".status-container .status")
+                if status_el:
+                    text = status_el.get_text(strip=True)
+                    if "ago" in text.lower():
+                        job["posted_date"] = parse_relative_date(text).isoformat()
+                        
+                # Salary extraction
+                sal_min, sal_max, sal_curr = extract_salary_from_text(job["salary"])
+                job["salary_min"] = sal_min
+                job["salary_max"] = sal_max
+                job["salary_currency"] = sal_curr
+                
+                # PPO flag
+                if "ppo" in resp.text.lower() or "pre-placement offer" in resp.text.lower():
+                    job["job_type"] += " (PPO possible)"
+                    
+                return job
+            except Exception as e:
+                log.debug(f"Internshala detail error {job['url']}: {e}")
+                return {}
 
 if __name__ == "__main__":
-    import sys
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    
-    async def main():
-        jobs = await scrape_internshala("python developer", max_pages=1)
-        for r in jobs[:3]:
-            print(f"  {r['title']} @ {r['company']} — {r['location']}")
-        print(f"\nTotal: {len(jobs)} jobs")
-        
-    asyncio.run(main())
+    adapter = InternshalaAdapter()
+    jobs = asyncio.run(adapter.run())
+    print(f"Fetched {len(jobs)} jobs")
+    if jobs:
+        print(jobs[0])

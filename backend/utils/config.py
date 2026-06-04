@@ -12,22 +12,22 @@ load_dotenv()
 
 # ─── Project Paths ───────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_DIR = BASE_DIR / "database"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 RESUMES_DIR = BASE_DIR / "resumes"
 
 # Ensure directories exist
-DATABASE_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR.mkdir(exist_ok=True)
 RESUMES_DIR.mkdir(exist_ok=True)
 
 # ─── Database ────────────────────────────────────────────────────────────────
-DB_PATH = DATABASE_DIR / "jobs.db"
+# PostgreSQL connection is configured in db/connection.py via DATABASE_URL env var.
+# No local file-based database is used.
 
 # ─── API Keys ────────────────────────────────────────────────────────────────
 SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 
 # ─── Scraping Settings ──────────────────────────────────────────────────────
 REQUEST_TIMEOUT = 30       # seconds
@@ -100,6 +100,7 @@ SOURCE_WEIGHTS = {
     "remoteok": 0.9,
     "weworkremotely": 0.9,
     "linkedin": 0.8,
+    "linkedin_apify": 0.85,
     "wellfound": 0.8,
     "google_jobs": 0.8,
     "naukri": 0.6,

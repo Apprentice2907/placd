@@ -43,7 +43,7 @@ export const JobDetailPage: React.FC = () => {
   }
 
   const { job, keywords, similar_jobs } = data;
-  const initialAvatar = job.company_name ? job.company_name.charAt(0).toUpperCase() : '?';
+  const initialAvatar = job.company ? job.company.charAt(0).toUpperCase() : '?';
   const cleanHTML = DOMPurify.sanitize(job.description || '<p>No description provided.</p>');
 
   return (
@@ -74,18 +74,18 @@ export const JobDetailPage: React.FC = () => {
         <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 sm:p-10 shadow-sm border border-neutral-200 dark:border-neutral-800 mb-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 mb-8">
             <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-700 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center shrink-0 overflow-hidden shadow-md">
-              {job.c_logo ? (
-                <img src={job.c_logo} alt={job.company_name} className="w-full h-full object-cover" />
+              {job.company_logo_url ? (
+                <img src={job.company_logo_url} alt={job.company || ''} className="w-full h-full object-cover" />
               ) : (
                 <span className="text-3xl font-bold text-neutral-500 dark:text-neutral-400">{initialAvatar}</span>
               )}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-lg font-bold text-neutral-700 dark:text-neutral-300">{job.company_name}</h2>
-                {job.c_ats && (
+                <h2 className="text-lg font-bold text-neutral-700 dark:text-neutral-300">{job.company}</h2>
+                {job.source && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400 border border-neutral-200 dark:border-neutral-700">
-                    {job.c_ats}
+                    {job.source}
                   </span>
                 )}
               </div>
@@ -100,15 +100,15 @@ export const JobDetailPage: React.FC = () => {
                   <Briefcase className="w-4 h-4" />
                   <span className="capitalize">{job.job_type || 'Full-time'}</span>
                 </div>
-                {job.salary_min && (
+                {job.stipend_display && (
                   <div className="flex items-center gap-1.5 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 px-3 py-1.5 rounded-lg">
                     <DollarSign className="w-4 h-4" />
-                    ${job.salary_min.toLocaleString()} {job.salary_max ? `- $${job.salary_max.toLocaleString()}` : ''}
+                    {job.stipend_display}
                   </div>
                 )}
                 <div className="flex items-center gap-1.5 px-3 py-1.5">
                   <Calendar className="w-4 h-4 text-neutral-400" />
-                  {new Date(job.created_at).toLocaleDateString()}
+                  {new Date(job.created_at || new Date()).toLocaleDateString()}
                 </div>
               </div>
             </div>
@@ -198,7 +198,7 @@ export const JobDetailPage: React.FC = () => {
                     >
                       <h4 className="font-bold text-sm line-clamp-1 mb-1">{simJob.title}</h4>
                       <div className="flex items-center justify-between text-xs text-neutral-500">
-                        <span className="font-medium">{simJob.company_name}</span>
+                        <span className="font-medium">{simJob.company}</span>
                         <span>{simJob.location}</span>
                       </div>
                     </Link>

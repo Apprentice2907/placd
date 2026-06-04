@@ -1,9 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    /* shadcn tokens */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -22,11 +25,45 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 239 84% 67%;
     --radius: 0.5rem;
+
+    /* Placd Design Tokens — Light */
+    --color-bg-primary: #ffffff;
+    --color-bg-surface: #f9fafb;
+    --color-bg-elevated: #ffffff;
+    --color-border: #e5e7eb;
+    --color-text-primary: #111827;
+    --color-text-secondary: #6b7280;
+    --color-text-muted: #9ca3af;
+    --color-accent: #6366f1;
+    --color-accent-hover: #4f46e5;
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-danger: #ef4444;
+
+    /* Legacy aliases (keep backward compat) */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f5;
+    --bg-card: #ffffff;
+    --border-color: #e5e7eb;
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --accent-purple: #6366f1;
+
+    /* Typography */
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+    /* Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
   }
 
   .dark {
+    /* shadcn tokens */
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
     --card: 222.2 84% 4.9%;
@@ -45,15 +82,115 @@
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --ring: 239 84% 67%;
+
+    /* Placd Design Tokens — Dark */
+    --color-bg-primary: #0a0a0a;
+    --color-bg-surface: #141414;
+    --color-bg-elevated: #1c1c1c;
+    --color-border: #2a2a2a;
+    --color-text-primary: #f5f5f5;
+    --color-text-secondary: #a3a3a3;
+    --color-text-muted: #525252;
+    --color-accent: #6366f1;
+    --color-accent-hover: #4f46e5;
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-danger: #ef4444;
+
+    /* Legacy aliases */
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #111111;
+    --bg-card: #141414;
+    --border-color: #2a2a2a;
+    --text-primary: #f5f5f5;
+    --text-secondary: #a3a3a3;
+    --text-muted: #525252;
+    --accent-purple: #818cf8;
   }
 }
 
 @layer base {
   * {
     @apply border-border;
+    box-sizing: border-box;
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  code, kbd, pre, samp {
+    font-family: var(--font-mono);
   }
 }
+
+@layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Legacy alias */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .glass {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .dark .glass {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+}
+
+/* Scrollbar styling */
+:root {
+  color-scheme: light dark;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,0.15) transparent;
+}
+.dark {
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+
+/* Selection */
+::selection {
+  background: rgba(99, 102, 241, 0.25);
+  color: inherit;
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Slide animation for panels */
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slideInUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.slide-in-right { animation: slideInRight 0.22s cubic-bezier(0.4,0,0.2,1) both; }
+.slide-in-up    { animation: slideInUp    0.22s cubic-bezier(0.4,0,0.2,1) both; }
+
+/* Toast */
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-enter { animation: fadeInDown 0.2s ease both; }

@@ -1,127 +1,282 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Job } from '../lib/api';
-import { formatDistanceToNow } from 'date-fns';
-import { MapPin, Briefcase, Bookmark, ExternalLink } from 'lucide-react';
+import { MapPin, Bookmark, BadgeCheck, Sparkles, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
+
+// Helper for colored hash
+const colors = [
+  'bg-red-500', 'bg-blue-500', 'bg-green-500',
+  'bg-yellow-500', 'bg-purple-500', 'bg-pink-500',
+  'bg-indigo-500', 'bg-teal-500'
+];
+
+function getHashColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// Eligibility Badge Logic
+function getEligibilityBadge(text?: string | null) {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (lower.includes('3rd year') || lower.includes('btech') || lower.includes('pre-final')) {
+    return { label: text, style: 'bg-blue-100 text-blue-700 border-blue-200' };
+  }
+  if (lower.includes('fresher') || lower.includes('0 experience')) {
+    return { label: text, style: 'bg-green-100 text-green-700 border-green-200' };
+  }
+  return { label: text, style: 'bg-gray-100 text-gray-700 border-gray-200' };
+}
+
+// Truncate Helpers
+function truncate(str: string, length: number) {
+  if (!str) return '';
+  return str.length > length ? str.substring(0, length) + '...' : str;
+}
+
+// Source badge config
+const SOURCE_BADGE_CONFIG: Record<string, { label: string; color: string }> = {
+  greenhouse: { label: 'via Greenhouse', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  lever: { label: 'via Lever', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  ashby: { label: 'via Ashby', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  workday: { label: 'via Workday', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  linkedin: { label: 'via LinkedIn', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  naukri: { label: 'via Naukri', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  indeed: { label: 'via Indeed', color: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
+  internshala: { label: 'via Internshala', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  wellfound: { label: 'via Wellfound', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
+  jobspy: { label: 'via JobSpy', color: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
+};
+
+function daysSince(dateStr: string): number {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// Match Score Ring Component
+const MatchScoreRing = ({ score }: { score?: number | null }) => {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // Trigger animation after mount
+    setTimeout(() => setMounted(true), 100);
+  }, []);
+
+  if (score == null) return null;
+  const radius = 14;
+  const circumference = 2 * Math.PI * radius;
+  // Start at 0 (full offset) and animate to real score
+  const strokeDashoffset = mounted ? circumference - score * circumference : circumference;
+  
+  let color = 'text-green-500';
+  if (score < 0.4) color = 'text-red-500';
+  else if (score < 0.7) color = 'text-amber-500';
+
+  return (
+    <div className="relative w-10 h-10 flex items-center justify-center shrink-0">
+      <svg className="w-10 h-10 transform -rotate-90">
+        <circle
+          className="text-neutral-200 dark:text-neutral-800"
+          strokeWidth="3"
+          stroke="currentColor"
+          fill="transparent"
+          r={radius}
+          cx="20"
+          cy="20"
+        />
+        <circle
+          className={cn(color, "transition-all duration-1000 ease-out")}
+          strokeWidth="3"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          stroke="currentColor"
+          fill="transparent"
+          r={radius}
+          cx="20"
+          cy="20"
+        />
+      </svg>
+      <span className="absolute text-[11px] font-bold text-neutral-700 dark:text-neutral-300">
+        {Math.round(score * 100)}%
+      </span>
+    </div>
+  );
+};
 
 interface JobCardProps {
   job: Job;
   isActive?: boolean;
+  onOpen?: () => void;
 }
 
-export const JobCard: React.FC<JobCardProps> = ({ job, isActive }) => {
-  const [isSaved, setIsSaved] = useState(false);
-  
-  const formattedDate = job.created_at 
-    ? formatDistanceToNow(new Date(job.created_at), { addSuffix: true })
-    : 'Recently';
+export const JobCard: React.FC<JobCardProps> = ({ job, isActive, onOpen }) => {
+  const [isSaved, setIsSaved] = useState(job.status === 'shortlisted');
+  const [imgError, setImgError] = useState(false);
 
-  const tags = [...(job.skills || []), ...(job.tags || [])].slice(0, 3);
-  
-  const getStatusBadge = () => {
-    if (job.status === 'active') return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">Active</span>;
-    if (job.status === 'unverified') return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">Unverified</span>;
-    if (job.status === 'expired') return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border border-red-200 dark:border-red-500/30">Expired</span>;
-    return null;
+  const toggleBookmark = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const newStatus = isSaved ? 'active' : 'shortlisted';
+    try {
+      await fetch(`/api/jobs/${job.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      setIsSaved(!isSaved);
+    } catch (err) {
+      console.error('Failed to update status', err);
+    }
   };
 
-  const initialAvatar = job.company_name ? job.company_name.charAt(0).toUpperCase() : '?';
+  const initialAvatar = job.company ? job.company.charAt(0).toUpperCase() : '?';
+  const hashColor = getHashColor(job.company || '');
+  const eligibility = getEligibilityBadge(job.who_can_apply);
+
+  let parsedSkills: string[] = [];
+  if (typeof job.skills === 'string') {
+    try {
+      parsedSkills = JSON.parse(job.skills);
+    } catch (e) {
+      parsedSkills = job.skills.split(',').map(s => s.trim());
+    }
+  } else if (Array.isArray(job.skills)) {
+    parsedSkills = job.skills;
+  }
+  const displayedSkills = parsedSkills.slice(0, 3);
+  const extraSkillsCount = parsedSkills.length - 3;
 
   return (
-    <div className={cn(
-      "group relative flex flex-col justify-between p-5 rounded-2xl bg-white dark:bg-neutral-900 border transition-all duration-200",
-      isActive 
-        ? "border-indigo-500 ring-1 ring-indigo-500 shadow-md dark:shadow-indigo-500/10" 
-        : "border-neutral-200 dark:border-neutral-800 hover:border-indigo-300 dark:hover:border-neutral-700 hover:shadow-lg dark:hover:shadow-black/50"
-    )}>
-      
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-700 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center shrink-0 overflow-hidden shadow-sm relative">
-            {job.c_logo ? (
-              <img 
-                src={job.c_logo} 
-                alt={job.company_name} 
-                className="w-full h-full object-cover relative z-10 bg-white" 
-                loading="lazy" 
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            ) : null}
-            {(!job.c_logo) && (
-              <span className="text-lg font-bold text-neutral-500 dark:text-neutral-400 absolute inset-0 flex items-center justify-center">{initialAvatar}</span>
-            )}
-            {/* Background fallback for broken images that are hidden by onError */}
-            {job.c_logo && (
-              <span className="text-lg font-bold text-neutral-500 dark:text-neutral-400 absolute inset-0 flex items-center justify-center z-0">{initialAvatar}</span>
-            )}
-          </div>
-          <div>
-            <h3 className="text-base font-semibold text-neutral-900 dark:text-white leading-tight line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-              {job.title}
-            </h3>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400 font-medium mt-0.5">{job.company_name}</p>
-          </div>
-        </div>
+    <div 
+      onClick={() => onOpen ? onOpen() : undefined}
+      className={cn(
+        "group relative flex flex-col p-5 rounded-xl bg-white dark:bg-neutral-900 border transition-all duration-150 hover:shadow-md hover:-translate-y-0.5 cursor-pointer",
+        isActive ? "border-indigo-500 shadow-sm" : "border-neutral-200 dark:border-neutral-800",
+        onOpen ? "cursor-pointer" : ""
+      )}
+    >
+        
+        {/* Bookmark Icon */}
         <button 
-          onClick={(e) => { e.preventDefault(); setIsSaved(!isSaved); }}
-          className="p-2 -m-2 text-neutral-400 hover:text-indigo-500 transition-colors"
-          aria-label="Save job"
+          onClick={toggleBookmark}
+          className="absolute top-4 left-4 p-1.5 text-neutral-400 hover:text-indigo-500 transition-colors z-10 bg-white/50 dark:bg-black/50 backdrop-blur-sm rounded-full"
         >
           <Bookmark className={cn("w-5 h-5", isSaved && "fill-indigo-500 text-indigo-500")} />
         </button>
-      </div>
 
-      {/* Meta */}
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-        <div className="flex items-center gap-1.5 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded-md">
-          <MapPin className="w-3.5 h-3.5" />
-          <span className="truncate max-w-[120px]">{job.location || 'Remote'}</span>
+        {/* Match Score */}
+        <div className="absolute top-4 right-4 z-10">
+          <MatchScoreRing score={job.match_score} />
         </div>
-        <div className="flex items-center gap-1.5 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded-md">
-          <Briefcase className="w-3.5 h-3.5" />
-          <span className="capitalize">{job.job_type || 'Full-time'}</span>
-        </div>
-        {job.salary_min && (
-          <div className="flex items-center gap-1.5 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 px-2 py-1 rounded-md font-medium">
-            ${job.salary_min.toLocaleString()}
-            {job.salary_max ? ` - $${job.salary_max.toLocaleString()}` : '+'}
+
+        <div className="pt-8">
+          {/* Top Row: Logo, Company, Title */}
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 shrink-0 rounded-full overflow-hidden flex items-center justify-center border border-neutral-100 dark:border-neutral-800">
+              {job.company_logo_url && !imgError ? (
+                <img 
+                  src={job.company_logo_url} 
+                  alt={job.company} 
+                  className="w-full h-full object-cover bg-white"
+                  onError={() => setImgError(true)}
+                />
+              ) : job.company_domain && !imgError ? (
+                <img 
+                  src={`https://logo.clearbit.com/${job.company_domain}`} 
+                  alt={job.company} 
+                  className="w-full h-full object-cover bg-white"
+                  onError={() => setImgError(true)}
+                />
+              ) : (
+                <div className={cn("w-full h-full flex items-center justify-center text-white font-bold text-lg", hashColor)}>
+                  {initialAvatar}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col">
+              <span className="font-bold text-neutral-900 dark:text-neutral-100 text-sm">
+                {truncate(job.company || 'Unknown Company', 20)}
+              </span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-medium">
+                {truncate(job.title, 35)}
+              </span>
+            </div>
           </div>
-        )}
-      </div>
 
-      {/* Tags */}
-      {tags.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {tags.map((tag) => (
-            <span key={tag} className="px-2 py-1 rounded-md text-[11px] font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-500/20">
-              {tag}
+          {/* Middle Row: Pills + Trust Badges */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {job.location && (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                <MapPin className="w-3 h-3" />
+                {job.location}
+              </span>
+            )}
+            {(job.is_remote === 1 || job.is_remote === true) && (
+              <span className="px-2 py-1 text-xs font-medium rounded-md bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                Remote
+              </span>
+            )}
+            <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              <span className="font-serif font-bold px-0.5">₹</span>
+              {job.stipend_display || 'Not mentioned'}
             </span>
-          ))}
-        </div>
-      )}
+            {/* Trust badges */}
+            {(job.trust_score ?? 0) >= 100 && (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 border border-violet-200 dark:border-violet-800">
+                <BadgeCheck className="w-3 h-3" /> Top Company
+              </span>
+            )}
+            {job.source && SOURCE_BADGE_CONFIG[job.source.toLowerCase()] && (
+              ['greenhouse','lever','ashby','workday'].includes(job.source.toLowerCase()) && (
+                <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  <Zap className="w-3 h-3" /> Direct
+                </span>
+              )
+            )}
+            {job.created_at && daysSince(job.created_at) <= 3 && (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">
+                <Sparkles className="w-3 h-3" /> New
+              </span>
+            )}
+          </div>
 
-      {/* Footer */}
-      <div className="mt-6 pt-4 border-t border-neutral-100 dark:border-neutral-800/50 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {getStatusBadge()}
-          <span className="text-[11px] text-neutral-400 font-medium">{formattedDate}</span>
-        </div>
-        
-        <a 
-          href={job.apply_url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          Apply
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
-      </div>
+          {/* Eligibility Row */}
+          {eligibility && (
+            <div className="mb-3">
+              <span className={cn("px-2 py-1 text-xs font-medium rounded-md border", eligibility.style)}>
+                {eligibility.label}
+              </span>
+            </div>
+          )}
 
+          {/* Skills Row */}
+          {parsedSkills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-auto pt-2 border-t border-neutral-100 dark:border-neutral-800">
+              {displayedSkills.map(skill => (
+                <span key={skill} className="px-2 py-0.5 text-[10px] font-medium rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                  {skill}
+                </span>
+              ))}
+              {extraSkillsCount > 0 && (
+                <span className="px-2 py-0.5 text-[10px] font-medium rounded bg-neutral-50 text-neutral-500 dark:bg-neutral-800/50 dark:text-neutral-500">
+                  +{extraSkillsCount} more
+                </span>
+              )}
+            </div>
+          )}
+          {/* Source Badge */}
+          {job.source && SOURCE_BADGE_CONFIG[job.source.toLowerCase()] && (
+            <div className="mt-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
+              <span className={cn("px-2 py-0.5 text-[10px] font-medium rounded", SOURCE_BADGE_CONFIG[job.source.toLowerCase()].color)}>
+                {SOURCE_BADGE_CONFIG[job.source.toLowerCase()].label}
+              </span>
+            </div>
+          )}
+        </div>
     </div>
   );
 };
