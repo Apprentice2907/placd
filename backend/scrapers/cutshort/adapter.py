@@ -135,7 +135,6 @@ class CutshortAdapter(UnifiedAdapter):
                 skill_names.append(s.get("name", str(s)))
             else:
                 skill_names.append(str(s))
-        skills_str = ", ".join(skill_names)
 
         # ── Salary (INR) ─────────────────────────────────────────
         salary_range = item.get("salaryRange", {}) or {}
@@ -166,24 +165,29 @@ class CutshortAdapter(UnifiedAdapter):
         # ── Description ──────────────────────────────────────────
         description = item.get("sanitizedComment", "") or item.get("description", "") or ""
 
+        from datetime import datetime
         return {
             "title": title,
             "company": company_name,
             "location": location,
             "description": description,
-            "url": apply_url,
             "apply_url": apply_url,
+            "url": apply_url,
             "source": self.source,
-            "job_type": job_type,
+            "source_platform": self.source,
+            "job_type": "full_time" if job_type == "full-time" else job_type,
+            "department": "General",
+            "date_posted": datetime.now().isoformat(), # Not provided easily, fallback
             "is_remote": is_remote,
-            "skills": skills_str,
+            "is_hybrid": False,
+            "trust_score": 60,
+            "company_domain": "",
+            "company_logo_url": None,
+            "company_tier": 3,
+            "skills": skill_names,
             "salary_min": salary_min,
             "salary_max": salary_max,
             "salary_currency": salary_currency,
-            "salary_display": salary_display,
-            "experience_min": exp_min,
-            "experience_max": exp_max,
-            "source_priority": self.priority,
         }
 
 
@@ -215,15 +219,13 @@ def _normalize_job_type(role_types: list, title: str = "") -> str:
 
 
 if __name__ == "__main__":
-    import sys, io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-
     adapter = CutshortAdapter({"name": "cutshort", "max_pages": 3})
     jobs = asyncio.run(adapter.fetch_jobs())
-    print(f"Fetched {len(jobs)} jobs from Cutshort")
-    for j in jobs[:5]:
-        sal = j.get("salary_display", "")
-        exp = f"{j.get('experience_min', '?')}-{j.get('experience_max', '?')} yrs" if j.get("experience_min") else ""
-        print(f"  {j['title']} @ {j['company']} — {j['location']} — {sal} — {exp}")
-        print(f"    Skills: {j.get('skills', '')[:80]}")
-        print(f"    URL: {j['apply_url']}")
+    print(f"{adapter.source}: {len(jobs)} jobs")
+    if jobs:
+        j = jobs[0]
+        print(f"  Title: {j['title']}")
+        print(f"  Company: {j['company']}")
+        print(f"  Location: {j['location']}")
+        print(f"  URL: {j['apply_url']}")
+        print(f"  Desc preview: {j['description'][:150]}")

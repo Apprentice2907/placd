@@ -1,56 +1,42 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: placd-postgres
-    restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
       POSTGRES_DB: placd
+      POSTGRES_USER: placd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d placd"]
+      test: ["CMD", "pg_isready", "-U", "placd"]
       interval: 10s
-      timeout: 5s
       retries: 5
-
-  typesense:
-    image: typesense/typesense:0.25.2
-    ports: ["8108:8108"]
-    volumes: ["typesense_data:/data"]
-    command: --data-dir /data --api-key=${TYPESENSE_API_KEY:-plcd_local_ts_key} --enable-cors
 
   redis:
     image: redis:7-alpine
-    container_name: placd-redis
-    restart: always
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+
+  typesense:
+    image: typesense/typesense:0.25.2
+    environment:
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-changeme}
+    volumes:
+      - typesense_data:/data
+    command: --data-dir /data --api-key=${TYPESENSE_API_KEY:-changeme} --enable-cors
+    restart: unless-stopped
 
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: placd-api
-    restart: always
-    env_file:
-      - .env
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
-      - REDIS_URL=redis://redis:6379/0
+    env_file: .env
     ports:
       - "8000:8000"
     depends_on:
@@ -58,81 +44,46 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      retries: 3
 
   celery-worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: placd-celery-worker
-    restart: always
-    env_file:
-      - .env
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
-      - REDIS_URL=redis://redis:6379/0
-    command: ["celery", "-A", "workers.crawlers", "worker", "--concurrency=8", "--queues=default,crawl,enrichment,celery", "--loglevel=info"]
+    command: >
+      celery -A workers.celery_app worker
+      -Q crawl_tier_a,crawl_tier_b,crawl_tier_c,enrich,liveness,opportunities
+      --concurrency=6
+      --loglevel=info
+    env_file: .env
     depends_on:
       - redis
       - postgres
+    restart: unless-stopped
 
   celery-beat:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: placd-celery-beat
-    restart: always
-    env_file:
-      - .env
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
-      - REDIS_URL=redis://redis:6379/0
-    command: ["celery", "-A", "workers.crawlers", "beat", "--loglevel=info"]
+    command: celery -A workers.celery_app beat --loglevel=info
+    env_file: .env
     depends_on:
       - redis
-      - postgres
-
-  playwright-worker:
-    build:
-      context: ./backend
-      dockerfile: playwright.Dockerfile
-    container_name: placd-playwright-worker
-    restart: always
-    env_file:
-      - .env
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/placd
-      - REDIS_URL=redis://redis:6379/0
-      - PLAYWRIGHT_ENABLED=true
-    depends_on:
-      - redis
-      - postgres
-
-  flower:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: placd-flower
-    restart: always
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-    command: ["celery", "-A", "workers.crawlers", "flower", "--port=5555"]
-    ports:
-      - "5555:5555"
-    depends_on:
-      - redis
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=/api
-    container_name: placd-frontend
-    restart: always
     ports:
       - "80:80"
     depends_on:
       - api
+    restart: unless-stopped
 
 volumes:
   postgres_data:

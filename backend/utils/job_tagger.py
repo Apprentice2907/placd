@@ -259,6 +259,47 @@ def is_internship(job: dict) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────
+# STUDENT ELIGIBILITY TAGGER
+# ─────────────────────────────────────────────────────────────
+
+_STUDENT_TITLE_KEYWORDS = [
+    "intern", "fresher", "trainee", "new grad", "campus", "apprentice", "graduate program"
+]
+
+_STUDENT_DESC_KEYWORDS = [
+    "pre-final year", "penultimate year", "pursuing", "3rd year", "third year",
+    "2025 batch", "2026 batch", "2027 batch", "currently enrolled", "undergraduate",
+    "0-1 year", "0 to 1", "entry level"
+]
+
+_STUDENT_EXCLUDE_KEYWORDS = [
+    "senior ", "staff ", "principal ", "director", "vp of", " lead "
+]
+
+def is_student_eligible(job: dict) -> bool:
+    """
+    Evaluates if a role is student friendly.
+    Matches the logic used in 012_student_eligible.sql migration.
+    """
+    job_type = (job.get("job_type") or job.get("employment_type") or "").lower()
+    title = (job.get("title") or "").lower()
+    desc = (job.get("description") or "").lower()
+
+    if any(ex in title for ex in _STUDENT_EXCLUDE_KEYWORDS):
+        return False
+
+    if job_type == 'internship' or job.get("is_internship"):
+        return True
+
+    if any(kw in title for kw in _STUDENT_TITLE_KEYWORDS):
+        return True
+
+    if any(kw in desc for kw in _STUDENT_DESC_KEYWORDS):
+        return True
+
+    return False
+
+# ─────────────────────────────────────────────────────────────
 # MASTER TAGGER — call this on every job
 # ─────────────────────────────────────────────────────────────
 
@@ -282,5 +323,6 @@ def tag_job(job: dict) -> dict:
     job["is_hybrid"] = work_mode == "hybrid"
 
     job["is_internship"] = is_internship(job)
+    job["is_student_eligible"] = is_student_eligible(job)
 
     return job

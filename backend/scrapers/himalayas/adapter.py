@@ -9,6 +9,7 @@ Paginated — keeps fetching until response "jobs" array is empty.
 import asyncio
 import re
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 from scrapers.shared.base_adapter import UnifiedAdapter
 
@@ -89,17 +90,23 @@ class HimalayasAdapter(UnifiedAdapter):
                         "company": company_name,
                         "location": location,
                         "description": description,
-                        "url": apply_url,
                         "apply_url": apply_url,
+                        "url": apply_url,
                         "source": self.source,
+                        "source_platform": self.source,
                         "job_type": job_type,
+                        "department": "General",
+                        "date_posted": datetime.now().isoformat(), # Not provided by himalayas API response by default, use current or extract
                         "is_remote": is_remote,
+                        "is_hybrid": False,
+                        "trust_score": 70,
+                        "company_domain": "",
+                        "company_logo_url": None,
+                        "company_tier": 3,
+                        "skills": tags,
                         "salary_min": salary_min,
                         "salary_max": salary_max,
                         "salary_currency": salary_currency or "USD",
-                        "tags": tags,
-                        "categories": categories,
-                        "source_priority": self.priority,
                     })
 
                 offset += page_size
@@ -167,12 +174,11 @@ def _parse_salary(salary_str: str, default_currency: str = "USD"):
 if __name__ == "__main__":
     adapter = HimalayasAdapter({"name": "himalayas", "max_jobs": 200})
     jobs = asyncio.run(adapter.fetch_jobs())
-    print(f"Fetched {len(jobs)} jobs from Himalayas")
+    print(f"{adapter.source}: {len(jobs)} jobs")
     if jobs:
         j = jobs[0]
-        print(f"  Title:    {j['title']}")
-        print(f"  Company:  {j['company']}")
+        print(f"  Title: {j['title']}")
+        print(f"  Company: {j['company']}")
         print(f"  Location: {j['location']}")
-        print(f"  Type:     {j['job_type']}")
-        print(f"  Salary:   {j.get('salary_min')}-{j.get('salary_max')} {j.get('salary_currency')}")
-        print(f"  URL:      {j['apply_url']}")
+        print(f"  URL: {j['apply_url']}")
+        print(f"  Desc preview: {j['description'][:150]}")

@@ -64,6 +64,7 @@ TASK_ROUTES = {
     "crawl_meta_task":              {"queue": "crawl_tier_b"},
     "crawl_microsoft_task":         {"queue": "crawl_tier_b"},
     "crawl_weworkremotely_task":    {"queue": "crawl_tier_b"},
+    "crawl_apple_task":             {"queue": "crawl_tier_b"},
 
     # crawl_tier_c: playwright-based scrapers
     "scrape_linkedin_task":         {"queue": "crawl_tier_c"},
@@ -124,7 +125,7 @@ app.conf.update(
         },
     },
 
-    # Beat Schedule for periodic background runs
+    # Beat Schedule for periodic background runs (5-minute staggering)
     beat_schedule={
         "scrape-himalayas-hourly": {
             "task": "workers.crawlers.crawl_himalayas_task",
@@ -133,38 +134,57 @@ app.conf.update(
         },
         "scrape-remoteok-hourly": {
             "task": "workers.crawlers.crawl_remoteok_task",
-            "schedule": crontab(minute="15"),
+            "schedule": crontab(minute="5"),
             "options": {"queue": "crawl_tier_a"}
         },
         "scrape-weworkremotely-hourly": {
             "task": "workers.crawlers.crawl_weworkremotely_task",
-            "schedule": crontab(minute="30"),
+            "schedule": crontab(minute="10"),
             "options": {"queue": "crawl_tier_b"}
         },
         "scrape-cutshort-2hourly": {
             "task": "workers.crawlers.crawl_cutshort_task",
-            "schedule": crontab(minute="45", hour="*/2"),
+            "schedule": crontab(minute="15", hour="*/2"),
+            "options": {"queue": "crawl_tier_b"}
+        },
+        "scrape-naukri-2hourly": {
+            "task": "workers.crawlers.crawl_naukri_task",
+            "schedule": crontab(minute="20", hour="*/2"),
+            "options": {"queue": "crawl_tier_b"}
+        },
+        "scrape-internshala-4hourly": {
+            "task": "workers.crawlers.crawl_internshala_task",
+            "schedule": crontab(minute="25", hour="*/4"),
+            "options": {"queue": "crawl_tier_b"}
+        },
+        "scrape-instahyre-2hourly": {
+            "task": "workers.crawlers.crawl_instahyre_task",
+            "schedule": crontab(minute="30", hour="*/2"),
+            "options": {"queue": "crawl_tier_b"}
+        },
+        "crawl-workday-companies": {
+            "task": "crawl_workday_companies_task",
+            "schedule": crontab(minute=0, hour="*/6"),
+        },
+        "scrape-apple-2hourly": {
+            "task": "workers.crawlers.crawl_apple_task",
+            "schedule": crontab(minute="35", hour="*/2"),
             "options": {"queue": "crawl_tier_b"}
         },
         "scrape-all-tier-a-6h": {
             "task": "workers.crawlers.scrape_all_discovered_companies",
-            "schedule": crontab(minute="0", hour="*/6"),
+            "schedule": crontab(minute="40", hour="*/6"),
+            "options": {"queue": "crawl_tier_a"}
+        },
+        "scrape-all-new-adapters-daily": {
+            "task": "workers.crawlers.crawl_all_new_adapters_task",
+            "schedule": crontab(minute="45", hour="3"),
             "options": {"queue": "crawl_tier_a"}
         },
         "run-full-discovery-weekly": {
             "task": "workers.crawlers.run_full_discovery",
             "schedule": crontab(minute="0", hour="1", day_of_week="sun"),
             "options": {"queue": "crawl_tier_a"}
-        },
-        "scrape-naukri-2hourly": {
-            "task": "workers.crawlers.crawl_naukri_task",
-            "schedule": crontab(minute="10", hour="*/2"),
-            "options": {"queue": "crawl_tier_b"}
-        },
-        "scrape-internshala-4hourly": {
-            "task": "workers.crawlers.crawl_internshala_task",
-            "schedule": crontab(minute="20", hour="*/4"),
-            "options": {"queue": "crawl_tier_b"}
         },
         "scrape-linkedin-daily": {
             "task": "workers.crawlers.scrape_linkedin_task",

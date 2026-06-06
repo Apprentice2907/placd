@@ -80,17 +80,23 @@ class GreenhouseAdapter(UnifiedAdapter):
                                 "title": job_title,
                                 "company": self.company or slug,
                                 "location": office,
-                                "department": department,
                                 "description": description,
-                                "url": job_url,
                                 "apply_url": job_url,
                                 "source": self.source,
-                                "posted_date": parse_relative_date(updated_at).isoformat() if updated_at else None,
-                                "job_type": "full-time",
-                                "salary": "",
-                                "source_priority": self.priority if hasattr(self, 'priority') else 1,
-                                "company_tags": self._format_tags() if hasattr(self, '_format_tags') else "",
-                                "company_type": self.company_type if hasattr(self, 'company_type') else ""
+                                "source_platform": self.source,
+                                "job_type": "full_time",
+                                "department": department,
+                                "date_posted": parse_relative_date(updated_at).isoformat() if updated_at else None,
+                                "is_remote": "remote" in office.lower() or "remote" in description.lower(),
+                                "is_hybrid": False,
+                                "trust_score": 80,
+                                "company_domain": f"{slug}.com",
+                                "company_logo_url": None,
+                                "company_tier": 2,
+                                "skills": [],
+                                "salary_min": None,
+                                "salary_max": None,
+                                "salary_currency": None,
                             })
                     except Exception as e:
                         # Log but don't fail the whole run
@@ -108,10 +114,13 @@ class GreenhouseAdapter(UnifiedAdapter):
         return all_jobs
 
 if __name__ == "__main__":
-    import sys
-    # For testing, just run one
     adapter = GreenhouseAdapter({"name": "Stripe", "board_token": "stripe"})
-    jobs = asyncio.run(adapter.run())
-    print(f"Fetched {len(jobs)} jobs")
+    jobs = asyncio.run(adapter.fetch_jobs())
+    print(f"{adapter.source}: {len(jobs)} jobs")
     if jobs:
-        print(jobs[0])
+        j = jobs[0]
+        print(f"  Title: {j['title']}")
+        print(f"  Company: {j['company']}")
+        print(f"  Location: {j['location']}")
+        print(f"  URL: {j['apply_url']}")
+        print(f"  Desc preview: {j['description'][:150]}")

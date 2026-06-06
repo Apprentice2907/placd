@@ -23,6 +23,7 @@ async def search_jobs_v2(
     quality: Optional[str] = Query(None, description="high|verified|all (default=spam-filtered)"),
     filter: Optional[str] = Query(None, description="faang|remote|internship|hybrid"),
     work_mode: Optional[str] = Query(None, description="remote|hybrid|onsite"),
+    student_mode: Optional[bool] = None,
     status: str = "active",
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100)
@@ -56,6 +57,7 @@ async def search_jobs_v2(
     if active_filter == "internship":  filters["is_internship"] = True
     if active_filter == "hybrid":      filters["is_hybrid"] = True
     if active_work_mode:               filters["work_mode"] = active_work_mode
+    if student_mode:                   filters["is_student_eligible"] = True
     
     # Typesense query
     try:
@@ -107,6 +109,8 @@ async def search_jobs_v2(
         if active_work_mode:
             where_parts.append("work_mode = :work_mode")
             params["work_mode"] = active_work_mode
+        if student_mode:
+            where_parts.append("is_student_eligible = TRUE")
 
         where_sql = " AND ".join(where_parts)
         

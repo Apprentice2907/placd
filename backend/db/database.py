@@ -148,13 +148,13 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             job_type, location, is_remote, status,
             url_hash, last_verified_at, duplicate_of, freshness_score,
             trust_score, is_spam, spam_reason, company_tier,
-            is_faang, is_internship, is_hybrid, work_mode
+            is_faang, is_internship, is_hybrid, work_mode, is_student_eligible
         ) VALUES (
             :company_id, :external_id, :title, :description, :apply_url, :source,
             :job_type, :location, :is_remote, :status,
             :url_hash, :last_verified_at, :duplicate_of, :freshness_score,
             :trust_score, :is_spam, :spam_reason, :company_tier,
-            :is_faang, :is_internship, :is_hybrid, :work_mode
+            :is_faang, :is_internship, :is_hybrid, :work_mode, :is_student_eligible
         )
         ON CONFLICT (url_hash) DO UPDATE SET
             company_id       = COALESCE(EXCLUDED.company_id, jobs.company_id),
@@ -170,6 +170,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             is_internship    = EXCLUDED.is_internship,
             is_hybrid        = EXCLUDED.is_hybrid,
             work_mode        = EXCLUDED.work_mode,
+            is_student_eligible = EXCLUDED.is_student_eligible,
             is_remote        = EXCLUDED.is_remote
         RETURNING id, (xmax = 0) AS inserted
     """)
@@ -214,6 +215,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                 "is_internship":   job.get("is_internship", False),
                 "is_hybrid":       job.get("is_hybrid", False),
                 "work_mode":       job.get("work_mode", "onsite"),
+                "is_student_eligible": job.get("is_student_eligible", False),
             })
             row = result.fetchone()
             if row:

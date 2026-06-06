@@ -47,6 +47,7 @@ For each job posting, extract and return this exact JSON structure in an array (
     "remote_type": null,          // "fully_remote"|"hybrid"|"onsite"|null
     "salary_mentioned": false,    // boolean
     "languages_required": [],     // human languages if mentioned (e.g. ["English", "Hindi"])
+    "student_eligible": false,    // boolean, true if it's an internship or suitable for a 3rd year student / fresher
     "role_summary": ""            // 2 sentence max summary of the role
   }}
 ]
@@ -239,6 +240,7 @@ async def _batch_enrich_async():
                 is_remote = True if remote_type == "fully_remote" else None
                 
                 experience_level = parsed.get("seniority_level", "") if parsed else ""
+                student_eligible = parsed.get("student_eligible") if parsed else None
                 
                 await session.execute(
                     text("""
@@ -248,6 +250,7 @@ async def _batch_enrich_async():
                             enrichment_cost_usd = :cost,
                             is_remote = COALESCE(:is_remote, is_remote),
                             experience_level = COALESCE(NULLIF(:experience_level, ''), experience_level),
+                            is_student_eligible = COALESCE(is_student_eligible, :student_eligible),
                             description_embedding = COALESCE(CAST(:embedding AS vector), description_embedding)
                         WHERE id = :id
                     """),
@@ -257,6 +260,7 @@ async def _batch_enrich_async():
                         "cost": cost_per_job,
                         "is_remote": is_remote,
                         "experience_level": experience_level,
+                        "student_eligible": student_eligible,
                         "embedding": embedding_str
                     }
                 )

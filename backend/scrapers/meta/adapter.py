@@ -1,94 +1,125 @@
 """
 Placd — Meta Careers Adapter
-Uses Playwright to render the page and extract jobs from the DOM (Tier 3 fallback).
+Uses Playwright to evaluate window.__initialData
 """
 import logging
-import asyncio
-from bs4 import BeautifulSoup
+import json
+from typing import List, Dict, Any
 from datetime import datetime
 
-from utils.config import USER_AGENT
+from scrapers.shared.base_adapter import UnifiedAdapter
 
 log = logging.getLogger(__name__)
 
-async def scrape_meta_careers(query: str, location: str = "") -> list[dict]:
-    log.info(f"Scraping Meta Careers for '{query}' in '{location}'")
-    jobs = []
-    
-    q = query.replace(" ", "%20")
-    if q:
-        base_url = f"https://www.metacareers.com/jobs/?q={q}"
-    else:
-        base_url = "https://www.metacareers.com/jobs/"
+class MetaAdapter(UnifiedAdapter):
+    source = "meta_careers"
+    company = "Meta"
+    rpm = 10
+    api_domain = "www.metacareers.com"
+
+    async def fetch_jobs(self) -> List[Dict[str, Any]]:
+        jobs = []
+        base_url = "https://www.metacareers.com/careers/jobs/?is_leadership=0"
         
-    try:
-        from playwright.async_api import async_playwright, TimeoutError as PwTimeout
-        
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
-            page = await context.new_page()
+        try:
+            from playwright.async_api import async_playwright
             
-            log.info(f"Navigating to {base_url}")
-            await page.goto(base_url, wait_until="networkidle", timeout=30000)
-            
-            # Wait for job list
-            try:
-                await page.wait_for_selector("a[href*='/profile/job_details/']", timeout=10000)
-            except PwTimeout:
-                log.debug("Timeout waiting for Meta Careers specific selector. Continuing with snapshot.")
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                page = await context.new_page()
                 
-            for _ in range(50):
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(1000)
-                
-            html = await page.content()
-            await browser.close()
-            
-        soup = BeautifulSoup(html, "html.parser")
-        
-        links = soup.find_all("a", href=True)
-        
-        for a in links:
-            href = a['href']
-            # Meta jobs URLs look like /profile/job_details/123456789
-            if "/profile/job_details/" in href:
-                title = a.get_text(strip=True)
-                if not title or len(title) < 5:
-                    continue
+                for page_num in range(1, 10):
+                    url = f"{base_url}&page={page_num}"
+                    log.info(f"Navigating to {url}")
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     
-                full_url = f"https://www.metacareers.com{href}" if href.startswith("/") else href
-                
-                parent = a.find_parent("div") or a.parent.parent
-                desc = parent.get_text(separator=" ", strip=True) if parent else ""
-                
-                is_intern = 1 if "intern" in title.lower() or "intern" in desc.lower() else 0
-                
-                if any(j['url'] == full_url for j in jobs):
-                    continue
+                    # Wait a bit for initialData to be populated if needed
+                    await page.wait_for_timeout(2000)
                     
-                job_id = href.strip("/").split("/")[-1]
+                    initial_data = await page.evaluate("() => window.__initialData")
+                    
+                    if not initial_data:
+                        log.warning(f"No window.__initialData found on page {page_num}")
+                        break
+                        
+                    def find_jobs_recursive(obj):
+                        found = []
+                        if isinstance(obj, dict):
+                            if "job_title" in obj and "id" in obj:
+                                found.append(obj)
+                            for v in obj.values():
+                                found.extend(find_jobs_recursive(v))
+                        elif isinstance(obj, list):
+                            for v in obj:
+                                found.extend(find_jobs_recursive(v))
+                        return found
+
+                    page_jobs = find_jobs_recursive(initial_data)
+                    if not page_jobs:
+                        break
+
+                    new_jobs = 0
+                    for j in page_jobs:
+                        job_id = j.get("id")
+                        title = j.get("job_title") or j.get("title", "")
+                        if not job_id or not title:
+                            continue
+
+                        apply_url = f"https://www.metacareers.com/jobs/{job_id}/"
+                        
+                        if any(existing['url'] == apply_url for existing in jobs):
+                            continue
+                            
+                        locations = j.get("locations", [])
+                        location = " / ".join(locations) if isinstance(locations, list) else str(locations)
+                        
+                        jobs.append({
+                            "title": title,
+                            "company": self.company,
+                            "location": location or "Global",
+                            "description": j.get("job_description") or j.get("summary") or title,
+                            "apply_url": apply_url,
+                            "url": apply_url,
+                            "source": self.source,
+                            "source_platform": self.source,
+                            "job_type": "full_time",
+                            "department": "Engineering",
+                            "date_posted": datetime.now().isoformat(),
+                            "is_remote": "remote" in location.lower(),
+                            "is_hybrid": False,
+                            "trust_score": 100,
+                            "company_domain": "meta.com",
+                            "company_logo_url": None,
+                            "company_tier": 1,
+                            "skills": [],
+                            "salary_min": None,
+                            "salary_max": None,
+                            "salary_currency": None,
+                        })
+                        new_jobs += 1
+                        
+                    if new_jobs == 0:
+                        break
+                        
+                await browser.close()
                 
-                jobs.append({
-                    "title": title,
-                    "company": "Meta",
-                    "location": location or "Global / Multiple",
-                    "description": desc,
-                    "url": full_url,
-                    "apply_url": full_url,
-                    "source": "meta_careers",
-                    "posted_date": datetime.now().isoformat(),
-                    "job_type": "full-time",
-                    "external_job_id": job_id,
-                    "source_priority": 10,
-                    "company_tags": "FAANG, BigTech",
-                    "company_type": "faang",
-                    "is_internship": is_intern
-                })
-                
-    except ImportError:
-        log.warning("Playwright not installed. Meta Careers requires Playwright.")
-    except Exception as e:
-        log.warning(f"Failed to scrape Meta Careers: {e}")
-        
-    return jobs
+        except ImportError:
+            log.warning("Playwright not installed.")
+        except Exception as e:
+            log.error(f"Failed to scrape Meta Careers via evaluate: {e}")
+            
+        return jobs
+
+if __name__ == "__main__":
+    import asyncio
+    adapter = MetaAdapter()
+    jobs = asyncio.run(adapter.fetch_jobs())
+    print(f"{adapter.source}: {len(jobs)} jobs")
+    if jobs:
+        j = jobs[0]
+        print(f"  Title: {j['title']}")
+        print(f"  Company: {j['company']}")
+        print(f"  Location: {j['location']}")
+        print(f"  URL: {j['apply_url']}")
+        print(f"  Desc preview: {j['description'][:150]}")

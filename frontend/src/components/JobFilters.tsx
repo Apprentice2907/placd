@@ -1,452 +1,288 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { SearchFilters } from '../lib/api';
 import { cn } from '../lib/utils';
-import { Search, Filter, X, ChevronDown, ChevronUp, Bookmark } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-const WORK_MODES = ['Remote', 'Hybrid', 'Onsite'] as const;
-const EXPERIENCE_LEVELS = ['Intern', 'Junior', 'Mid', 'Senior', 'Staff', 'Lead'] as const;
-const JOB_FUNCTIONS = ['Engineering', 'Data', 'ML/AI', 'DevOps', 'Mobile', 'Design', 'Product'] as const;
-const POSTED_WITHIN = [
-  { label: '24h', value: '1' },
-  { label: '3 days', value: '3' },
-  { label: '1 week', value: '7' },
-  { label: '1 month', value: '30' },
-  { label: 'Any time', value: '' },
-] as const;
-const SOURCE_PLATFORMS = [
-  'greenhouse', 'lever', 'ashby', 'himalayas', 'remoteok', 'naukri',
-  'internshala', 'amazon_jobs', 'microsoft_careers', 'google_careers',
-] as const;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PillGroup helper
-// ─────────────────────────────────────────────────────────────────────────────
-const PillGroup = ({
-  options,
-  value,
-  onChange,
-  multi = false,
-}: {
-  options: readonly string[];
-  value: string[];
-  onChange: (v: string[]) => void;
-  multi?: boolean;
-}) => (
-  <div className="flex flex-wrap gap-1.5">
-    {options.map((opt) => {
-      const isActive = value.includes(opt.toLowerCase());
-      return (
-        <button
-          key={opt}
-          type="button"
-          onClick={() => {
-            if (multi) {
-              isActive
-                ? onChange(value.filter(v => v !== opt.toLowerCase()))
-                : onChange([...value, opt.toLowerCase()]);
-            } else {
-              onChange(isActive ? [] : [opt.toLowerCase()]);
-            }
-          }}
-          className={cn(
-            'px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
-            isActive
-              ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20'
-              : 'bg-transparent text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300'
-          )}
-        >
-          {opt}
-        </button>
-      );
-    })}
-  </div>
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Collapsible filter section
-// ─────────────────────────────────────────────────────────────────────────────
 const FilterSection = ({
   label,
-  activeCount,
   children,
-  defaultOpen = false,
+  defaultOpen = true,
 }: {
   label: string;
-  activeCount?: number;
   children: React.ReactNode;
   defaultOpen?: boolean;
 }) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border-b border-[var(--color-border)] last:border-b-0">
+    <div className="mb-6">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between py-3 px-1 text-sm font-semibold text-[var(--color-text-primary)] hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+        className="w-full flex items-center justify-between mb-[12px] text-[14px] font-[600] text-[#111111]"
       >
-        <span className="flex items-center gap-2">
-          {label}
-          {activeCount ? (
-            <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
-              {activeCount}
-            </span>
-          ) : null}
-        </span>
-        {open ? <ChevronUp className="w-4 h-4 opacity-50" /> : <ChevronDown className="w-4 h-4 opacity-50" />}
+        {label}
+        <ChevronRight className={cn("w-4 h-4 transition-transform duration-200 text-[#111111]", open ? "rotate-90" : "")} />
       </button>
-      {open && <div className="pb-4">{children}</div>}
+      <div className={cn("grid transition-[grid-template-rows] duration-200 ease-in-out", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+        <div className="overflow-hidden">
+          {children}
+        </div>
+      </div>
     </div>
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Props
-// ─────────────────────────────────────────────────────────────────────────────
+const CheckboxItem = ({
+  label,
+  count,
+  checked,
+  onChange,
+}: {
+  label: string;
+  count: number;
+  checked: boolean;
+  onChange: () => void;
+}) => {
+  return (
+    <label className="flex items-center justify-between h-[32px] w-full cursor-pointer hover:bg-[#F9FAFB] rounded-[6px] px-1 -mx-1 group">
+      <input type="checkbox" className="hidden" checked={checked} onChange={onChange} />
+      <div className="flex items-center">
+        <div className={cn(
+          "w-[16px] h-[16px] flex items-center justify-center transition-colors",
+          checked ? "bg-[#111111] border-[#111111] rounded-[3px]" : "bg-white border-[1.5px] border-[#D1D5DB] rounded-[3px]"
+        )}>
+          {checked && (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          )}
+        </div>
+        <span className="text-[13px] text-[#333333] ml-[8px]">{label}</span>
+      </div>
+      <span className={cn(
+        "text-[11px] font-[600] px-[7px] py-[1px] rounded-full",
+        checked ? "bg-[#DCFCE7] text-[#16A34A]" : "bg-[#F3F4F6] text-[#666666]"
+      )}>
+        {count}
+      </span>
+    </label>
+  );
+};
+
 interface JobFiltersProps {
   filters: Omit<SearchFilters, 'page'>;
-  onFilterChange: (newFilters: Partial<Omit<SearchFilters, 'page'>>) => void;
-  stats?: { total: number; internships: number; fulltime: number; remote: number };
-  onSaveSearch?: () => void;
+  onFilterChange: (newFilters: Partial<Omit<SearchFilters, 'page'>>, immediate?: boolean) => void;
+  stats?: any;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Component
-// ─────────────────────────────────────────────────────────────────────────────
-export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange, onSaveSearch }) => {
-  const [showPanel, setShowPanel] = useState(false);
-  const [localSearch, setLocalSearch] = useState((filters as any).q || '');
-  const [skillInput, setSkillInput] = useState('');
-  const searchTimeout = useRef<number | null>(null);
+export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange }) => {
+  const [studentMode, setStudentMode] = useState<boolean>(() => {
+    return localStorage.getItem('placd_student_mode') === 'true';
+  });
 
-  // Parse multi-value string filters
-  const parsePills = (val?: string): string[] =>
-    val ? val.split(',').filter(Boolean) : [];
+  const [localMin, setLocalMin] = useState(filters.salary_min || '');
+  const [localMax, setLocalMax] = useState(filters.salary_max || '');
 
-  const workModes = parsePills((filters as any).work_mode);
-  const seniorities = parsePills((filters as any).seniority);
-  const jobFunctions = parsePills((filters as any).job_function);
-  const skills = parsePills((filters as any).skills);
-  const sources = parsePills((filters as any).source_platform);
+  const parsePills = (val?: string): string[] => val ? val.split(',').filter(Boolean) : [];
+  
+  const jobTypes = parsePills(filters.job_type as string);
+  const isRemote = filters.is_remote === true;
+  const seniorities = parsePills(filters.seniority as string);
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setLocalSearch(val);
-    if (searchTimeout.current) window.clearTimeout(searchTimeout.current);
-    searchTimeout.current = window.setTimeout(() => {
-      onFilterChange({ q: val || undefined });
-    }, 300);
+  const handlePillToggle = (key: string, value: string, current: string[]) => {
+    const isChecked = current.includes(value);
+    const updated = isChecked ? current.filter(v => v !== value) : [...current, value];
+    onFilterChange({ [key]: updated.length ? updated.join(',') : undefined } as any, false);
   };
 
-  const handlePillChange = (key: keyof SearchFilters, vals: string[]) => {
-    onFilterChange({ [key]: vals.length ? vals.join(',') : undefined } as any);
+  const handleApply = () => {
+    onFilterChange({ ...filters }, true);
   };
 
-  const addSkill = (skill: string) => {
-    const trimmed = skill.trim();
-    if (!trimmed || skills.length >= 5 || skills.includes(trimmed)) return;
-    handlePillChange('skills', [...skills, trimmed]);
-    setSkillInput('');
-  };
-
-  const removeSkill = (skill: string) => {
-    handlePillChange('skills', skills.filter(s => s !== skill));
-  };
-
-  // Count active filters (excluding q and per_page/sort/status)
-  const activeCount = [
-    (filters as any).work_mode,
-    (filters as any).seniority,
-    (filters as any).job_function,
-    (filters as any).location,
-    (filters as any).skills,
-    (filters as any).source_platform,
-    (filters as any).posted_within,
-    (filters as any).visa_sponsorship,
-    (filters as any).equity,
-    (filters as any).salary_min,
-    (filters as any).salary_max,
-  ].filter(Boolean).length;
-
-  const clearAll = () => {
-    setLocalSearch('');
+  const handleReset = () => {
+    setStudentMode(false);
+    setLocalMin('');
+    setLocalMax('');
     onFilterChange({
-      q: undefined, job_type: undefined, is_remote: undefined,
-      work_mode: undefined, seniority: undefined, job_function: undefined,
-      location: undefined, skills: undefined, source_platform: undefined,
-      posted_within: undefined, salary_min: undefined, salary_max: undefined,
-      visa_sponsorship: undefined, equity: undefined,
-    } as any);
+      job_type: undefined,
+      is_remote: undefined,
+      seniority: undefined,
+      salary_min: undefined,
+      salary_max: undefined,
+      student_mode: undefined
+    } as any, true);
+  };
+
+  useEffect(() => {
+    localStorage.setItem('placd_student_mode', String(studentMode));
+    if (studentMode !== filters.student_mode) {
+      onFilterChange({ student_mode: studentMode || undefined } as any, false);
+    }
+  }, [studentMode, onFilterChange, filters]);
+
+  const handleSalaryBlur = () => {
+    onFilterChange({ 
+      salary_min: localMin ? Number(localMin) : undefined,
+      salary_max: localMax ? Number(localMax) : undefined
+    }, false);
   };
 
   return (
-    <>
-      {/* ── Top bar (always visible) ─────────────────────────────────────── */}
-      <div className="w-full sticky top-0 z-40 bg-[var(--color-bg-primary)]/90 dark:bg-[var(--color-bg-surface)]/90 backdrop-blur-md border-b border-[var(--color-border)]">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
-          {/* Search input */}
-          <div className="relative flex-1 group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 group-focus-within:text-indigo-500 transition-colors" />
-            <input
-              id="jobs-search"
-              type="text"
-              placeholder="Search roles, companies, skills…"
-              value={localSearch}
-              onChange={handleSearchChange}
-              className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-all text-[var(--color-text-primary)]"
+    <aside className="w-[260px] shrink-0 h-[calc(100vh-108px)] overflow-y-auto flex flex-col bg-white hidden lg:flex no-scrollbar">
+      <div className="flex-1 flex flex-col px-6 py-6">
+        
+        {/* Type of Employment */}
+        <FilterSection label="Type of Employment">
+          <div className="flex flex-col">
+            <CheckboxItem 
+              label="Full Time Jobs" 
+              count={159} 
+              checked={jobTypes.includes('full-time')} 
+              onChange={() => handlePillToggle('job_type', 'full-time', jobTypes)} 
             />
-            {localSearch && (
-              <button
-                onClick={() => { setLocalSearch(''); onFilterChange({ q: undefined }); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+            <CheckboxItem 
+              label="Part Time Jobs" 
+              count={38} 
+              checked={jobTypes.includes('part-time')} 
+              onChange={() => handlePillToggle('job_type', 'part-time', jobTypes)} 
+            />
+            <CheckboxItem 
+              label="Remote Jobs" 
+              count={50} 
+              checked={isRemote} 
+              onChange={() => onFilterChange({ is_remote: isRemote ? undefined : true } as any)} 
+            />
+            <CheckboxItem 
+              label="Training Jobs" 
+              count={15} 
+              checked={jobTypes.includes('training')} 
+              onChange={() => handlePillToggle('job_type', 'training', jobTypes)} 
+            />
           </div>
+        </FilterSection>
 
-          {/* Save search button */}
-          {onSaveSearch && (
+        {/* Seniority Level */}
+        <FilterSection label="Seniority Level">
+          <div className="flex flex-col">
+            <CheckboxItem 
+              label="Student Level" 
+              count={48} 
+              checked={seniorities.includes('student')} 
+              onChange={() => handlePillToggle('seniority', 'student', seniorities)} 
+            />
+            <CheckboxItem 
+              label="Entry Level" 
+              count={51} 
+              checked={seniorities.includes('entry')} 
+              onChange={() => handlePillToggle('seniority', 'entry', seniorities)} 
+            />
+            <CheckboxItem 
+              label="Mid Level" 
+              count={150} 
+              checked={seniorities.includes('mid')} 
+              onChange={() => handlePillToggle('seniority', 'mid', seniorities)} 
+            />
+            <CheckboxItem 
+              label="Senior Level" 
+              count={30} 
+              checked={seniorities.includes('senior')} 
+              onChange={() => handlePillToggle('seniority', 'senior', seniorities)} 
+            />
+            <CheckboxItem 
+              label="Directors" 
+              count={20} 
+              checked={seniorities.includes('director')} 
+              onChange={() => handlePillToggle('seniority', 'director', seniorities)} 
+            />
+            <CheckboxItem 
+              label="VP or Above" 
+              count={15} 
+              checked={seniorities.includes('vp')} 
+              onChange={() => handlePillToggle('seniority', 'vp', seniorities)} 
+            />
+          </div>
+        </FilterSection>
+
+        {/* Student Mode toggle */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between">
+            <div className="text-[13px] font-[600] text-[#111111]">
+              Student Mode
+            </div>
             <button
-              onClick={onSaveSearch}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-border)] text-sm text-[var(--color-text-secondary)] hover:text-indigo-600 hover:border-indigo-400 transition-colors whitespace-nowrap"
+              type="button"
+              role="switch"
+              aria-checked={studentMode}
+              onClick={() => setStudentMode(!studentMode)}
+              className={cn(
+                'relative inline-flex h-[22px] w-[40px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out',
+                studentMode ? 'bg-[#16A34A]' : 'bg-[#E5E7EB]'
+              )}
             >
-              <Bookmark className="w-4 h-4" />
-              <span className="hidden sm:inline">Save</span>
+              <span
+                className={cn(
+                  'pointer-events-none inline-block h-[18px] w-[18px] transform rounded-full bg-white transition duration-200 ease-in-out',
+                  studentMode ? 'translate-x-[18px]' : 'translate-x-0'
+                )}
+              />
             </button>
-          )}
-
-          {/* Filters button */}
-          <button
-            id="toggle-filters"
-            onClick={() => setShowPanel(!showPanel)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all whitespace-nowrap',
-              showPanel || activeCount > 0
-                ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-indigo-400'
-            )}
-          >
-            <Filter className="w-4 h-4" />
-            Filters
-            {activeCount > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-white/20">
-                {activeCount}
-              </span>
-            )}
-          </button>
-
-          {/* Clear all */}
-          {activeCount > 0 && (
-            <button
-              onClick={clearAll}
-              className="text-xs font-medium text-red-500 hover:text-red-700 whitespace-nowrap hidden sm:block"
-            >
-              Clear all
-            </button>
-          )}
+          </div>
         </div>
 
-        {/* ── Filter panel (slide down) ──────────────────────────────────── */}
-        {showPanel && (
-          <div className="border-t border-[var(--color-border)] max-w-7xl mx-auto px-4 pb-4">
-            <div className="pt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8">
-
-              {/* Work Mode */}
-              <FilterSection label="Work Mode" activeCount={workModes.length} defaultOpen>
-                <PillGroup
-                  options={WORK_MODES}
-                  value={workModes}
-                  onChange={(v) => handlePillChange('is_remote' as any, v)}
-                  multi
-                />
-              </FilterSection>
-
-              {/* Experience Level */}
-              <FilterSection label="Experience Level" activeCount={seniorities.length} defaultOpen>
-                <PillGroup
-                  options={EXPERIENCE_LEVELS}
-                  value={seniorities}
-                  onChange={(v) => handlePillChange('seniority', v)}
-                  multi
-                />
-              </FilterSection>
-
-              {/* Job Function */}
-              <FilterSection label="Job Function" activeCount={jobFunctions.length} defaultOpen>
-                <PillGroup
-                  options={JOB_FUNCTIONS}
-                  value={jobFunctions}
-                  onChange={(v) => handlePillChange('job_function', v)}
-                  multi
-                />
-              </FilterSection>
-
-              {/* Location */}
-              <FilterSection label="Location" activeCount={(filters as any).location ? 1 : 0}>
-                <input
-                  type="text"
-                  placeholder="City, country or Anywhere"
-                  value={(filters as any).location || ''}
-                  onChange={(e) => onFilterChange({ location: e.target.value || undefined })}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-[var(--color-text-primary)] transition-all"
-                />
-              </FilterSection>
-
-              {/* Posted Within */}
-              <FilterSection label="Posted Within" activeCount={(filters as any).posted_within ? 1 : 0}>
-                <div className="flex flex-wrap gap-1.5">
-                  {POSTED_WITHIN.map(({ label, value }) => {
-                    const isActive = (filters as any).posted_within === value || (!value && !(filters as any).posted_within);
-                    return (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => onFilterChange({ posted_within: value || undefined } as any)}
-                        className={cn(
-                          'px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
-                          isActive
-                            ? 'bg-indigo-600 text-white border-indigo-600'
-                            : 'bg-transparent text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-indigo-400'
-                        )}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </FilterSection>
-
-              {/* Skills */}
-              <FilterSection label="Skills" activeCount={skills.length}>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Add skill (max 5)"
-                    value={skillInput}
-                    onChange={(e) => setSkillInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSkill(skillInput); } }}
-                    disabled={skills.length >= 5}
-                    className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-[var(--color-text-primary)] disabled:opacity-50"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => addSkill(skillInput)}
-                    disabled={!skillInput.trim() || skills.length >= 5}
-                    className="px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white disabled:opacity-40 hover:bg-indigo-700 transition-colors"
-                  >
-                    +
-                  </button>
-                </div>
-                {skills.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {skills.map(skill => (
-                      <span key={skill} className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-                        {skill}
-                        <button onClick={() => removeSkill(skill)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </FilterSection>
-
-              {/* Source Platform */}
-              <FilterSection label="Source Platform" activeCount={sources.length}>
-                <div className="grid grid-cols-2 gap-1">
-                  {SOURCE_PLATFORMS.map(src => {
-                    const isChecked = sources.includes(src);
-                    return (
-                      <label key={src} className="flex items-center gap-2 py-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {
-                            isChecked
-                              ? handlePillChange('source_platform', sources.filter(s => s !== src))
-                              : handlePillChange('source_platform', [...sources, src]);
-                          }}
-                          className="w-3.5 h-3.5 rounded border-neutral-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-xs text-[var(--color-text-secondary)] capitalize">{src.replace('_', ' ')}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </FilterSection>
-
-              {/* Salary Range */}
-              <FilterSection label="Salary Range" activeCount={(filters as any).salary_min || (filters as any).salary_max ? 1 : 0}>
-                <div className="flex gap-3">
-                  <div className="flex-1">
-                    <label className="text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">Min</label>
-                    <input
-                      type="number"
-                      placeholder="0"
-                      min={0}
-                      value={(filters as any).salary_min || ''}
-                      onChange={(e) => onFilterChange({ salary_min: e.target.value ? Number(e.target.value) : undefined })}
-                      className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-[var(--color-text-primary)]"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">Max</label>
-                    <input
-                      type="number"
-                      placeholder="Any"
-                      min={0}
-                      value={(filters as any).salary_max || ''}
-                      onChange={(e) => onFilterChange({ salary_max: e.target.value ? Number(e.target.value) : undefined })}
-                      className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-[var(--color-text-primary)]"
-                    />
-                  </div>
-                </div>
-              </FilterSection>
-
-              {/* Toggles */}
-              <FilterSection label="Perks">
-                <div className="space-y-2">
-                  {[
-                    { key: 'visa_sponsorship', label: 'Visa Sponsorship' },
-                    { key: 'equity', label: 'Equity Offered' },
-                  ].map(({ key, label }) => (
-                    <label key={key} className="flex items-center justify-between cursor-pointer">
-                      <span className="text-sm text-[var(--color-text-secondary)]">{label}</span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={(filters as any)[key] === true}
-                        onClick={() => onFilterChange({ [key]: (filters as any)[key] ? undefined : true } as any)}
-                        className={cn(
-                          'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
-                          (filters as any)[key] ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform',
-                            (filters as any)[key] ? 'translate-x-4' : 'translate-x-0.5'
-                          )}
-                        />
-                      </button>
-                    </label>
-                  ))}
-                </div>
-              </FilterSection>
-
+        {/* Salary Range */}
+        <FilterSection label="Salary Range">
+          <div className="mt-2">
+            <div className="relative w-full h-[3px] bg-[#E5E7EB] rounded-full mb-6">
+              {/* Fake slider thumb */}
+              <div className="absolute left-[20%] right-[30%] h-full bg-[#111111]"></div>
+              <div className="absolute left-[20%] top-1/2 -translate-y-1/2 w-[16px] h-[16px] bg-[#111111] rounded-full border-[2px] border-white shadow-[0_1px_4px_rgba(0,0,0,0.2)] cursor-grab"></div>
+              <div className="absolute right-[30%] top-1/2 -translate-y-1/2 w-[16px] h-[16px] bg-[#111111] rounded-full border-[2px] border-white shadow-[0_1px_4px_rgba(0,0,0,0.2)] cursor-grab"></div>
             </div>
 
-            {/* Mobile clear all */}
-            {activeCount > 0 && (
-              <button onClick={clearAll} className="mt-3 w-full py-2 rounded-lg border border-red-300 text-red-500 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/10 sm:hidden">
-                Clear all filters
-              </button>
-            )}
+            <div className="flex justify-between items-center gap-2">
+              <div className="flex-1">
+                <input
+                  type="number"
+                  placeholder="MIN"
+                  value={localMin}
+                  onChange={(e) => setLocalMin(e.target.value)}
+                  onBlur={handleSalaryBlur}
+                  className="w-[90px] px-[10px] py-[6px] text-[13px] rounded-[6px] border-[1.5px] border-[#E5E7EB] bg-white outline-none focus:border-[#111111]"
+                />
+              </div>
+              <div className="w-2 h-[2px] bg-neutral-300"></div>
+              <div className="flex-1 text-right">
+                <input
+                  type="number"
+                  placeholder="MAX"
+                  value={localMax}
+                  onChange={(e) => setLocalMax(e.target.value)}
+                  onBlur={handleSalaryBlur}
+                  className="w-[90px] px-[10px] py-[6px] text-[13px] rounded-[6px] border-[1.5px] border-[#E5E7EB] bg-white outline-none focus:border-[#111111]"
+                />
+              </div>
+            </div>
           </div>
-        )}
+        </FilterSection>
+
+        {/* Bottom Buttons */}
+        <div className="pt-2 flex gap-[8px] mb-[24px]">
+          <button 
+            onClick={handleApply}
+            className="flex-1 bg-[#111111] text-white text-[13px] font-[600] p-[10px] rounded-[7px]"
+          >
+            APPLY
+          </button>
+          <button 
+            onClick={handleReset}
+            className="flex-1 bg-white text-[#111111] border-[1.5px] border-[#D1D5DB] text-[13px] font-[600] p-[10px] rounded-[7px]"
+          >
+            RESET
+          </button>
+        </div>
+
       </div>
-    </>
+
+    </aside>
   );
 };

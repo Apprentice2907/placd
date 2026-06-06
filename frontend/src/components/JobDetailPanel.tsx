@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Job } from '../lib/api';
-import { ExternalLink, Bookmark, Share2, X, MapPin, Briefcase, DollarSign, Clock, BadgeCheck, Sparkles, Zap } from 'lucide-react';
+import { ExternalLink, Bookmark, Share2, X, MapPin, Briefcase, DollarSign, Clock, BadgeCheck, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { JobDetailSkeleton } from './Skeletons';
 

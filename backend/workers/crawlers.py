@@ -15,6 +15,7 @@ from scrapers.ats.workable import WorkableCrawler
 # ── New Adapters (Task 4) ────────────────────────────────────────────────────
 from scrapers.bamboohr.adapter import BambooHRAdapter
 from scrapers.recruitee.adapter import RecruiteeAdapter
+from scrapers.workday.company_scraper import WorkdayCompanyScraper
 from scrapers.himalayas.adapter import HimalayasAdapter
 from scrapers.cutshort.adapter import CutshortAdapter
 from scrapers.instahyre.adapter import scrape_instahyre
@@ -299,6 +300,16 @@ def crawl_recruitee_task(self, company_slug: str):
     except Exception as exc:
         raise self.retry(exc=exc, countdown=default_retry_countdown(self.request.retries))
 
+@celery.task(name="crawl_workday_companies_task", bind=True, max_retries=3)
+def crawl_workday_companies_task(self):
+    async def _crawl():
+        scraper = WorkdayCompanyScraper()
+        await scraper.fetch_jobs()
+    try:
+        run_async(_crawl())
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=default_retry_countdown(self.request.retries))
+
 
 # ── Himalayas (crawl_tier_a) ─────────────────────────────────────────────────
 
@@ -369,7 +380,7 @@ def crawl_naukri_task(self):
         raise self.retry(exc=exc, countdown=default_retry_countdown(self.request.retries))
 
 # ── Internshala Global (crawl_tier_b) ──────────────────────────────────────────
-
+        
 @celery.task(bind=True, name="crawl_internshala_task", max_retries=3)
 def crawl_internshala_task(self):
     """Crawl Internshala global search."""
@@ -384,6 +395,25 @@ def crawl_internshala_task(self):
             logger.error("InternshalaScraper not found")
     try:
         run_async(_crawl_internshala_async())
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=default_retry_countdown(self.request.retries))
+
+# ── Apple (crawl_tier_b) ───────────────────────────────────────────────────────
+
+@celery.task(bind=True, name="crawl_apple_task", max_retries=3)
+def crawl_apple_task(self):
+    """Crawl Apple Careers API."""
+    async def _crawl_apple_async():
+        logger.info("apple_crawl_started")
+        try:
+            from scrapers.apple.adapter import AppleAdapter
+            adapter = AppleAdapter()
+            jobs = await adapter.fetch_jobs()
+            logger.info("apple_crawl_done", jobs_found=len(jobs))
+        except ImportError:
+            logger.error("AppleAdapter not found")
+    try:
+        run_async(_crawl_apple_async())
     except Exception as exc:
         raise self.retry(exc=exc, countdown=default_retry_countdown(self.request.retries))
 

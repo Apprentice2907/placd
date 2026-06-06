@@ -5,6 +5,9 @@ FAANG_COMPANIES = [
     {"name": "Amazon", "ats_type": "amazon_jobs", "ats_slug": "amazon"},
     {"name": "Netflix", "ats_type": "workday", "ats_slug": "netflix"},
     {"name": "Microsoft", "ats_type": "microsoft_careers", "ats_slug": "microsoft"},
+    {"name": "Nvidia", "ats_type": "workday", "ats_slug": "nvidia"},
+    {"name": "Salesforce", "ats_type": "workday", "ats_slug": "salesforce"},
+    {"name": "Adobe", "ats_type": "workday", "ats_slug": "adobe"},
 ]
 
 TOP_STARTUPS = [

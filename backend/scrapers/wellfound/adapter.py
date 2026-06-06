@@ -109,20 +109,23 @@ class WellfoundAdapter(UnifiedAdapter):
                             "company": startup.get("name", ""),
                             "location": "Remote" if job.get("remoteAllowed") else "India",
                             "description": clean_description(job.get("description", "")),
-                            "url": apply_url,
                             "apply_url": apply_url,
+                            "url": apply_url,
                             "source": self.source,
-                            "posted_date": parse_relative_date(job.get("liveStartAt", "")).isoformat() if job.get("liveStartAt") else None,
-                            "job_type": job.get("jobType", "full-time"),
-                            "salary_min": int(comp.get("minSalary") or 0),
-                            "salary_max": int(comp.get("maxSalary") or 0),
-                            "salary_currency": comp.get("currencyCode", "USD"),
-                            "equity": equity,
-                            "company_stage": startup.get("companyStage", ""),
-                            "company_size": startup.get("companySize", ""),
-                            "funding_amount": startup.get("fundingAmount", ""),
+                            "source_platform": self.source,
+                            "job_type": job.get("jobType", "full_time"),
+                            "department": "General",
+                            "date_posted": parse_relative_date(job.get("liveStartAt", "")).isoformat() if job.get("liveStartAt") else None,
                             "is_remote": bool(job.get("remoteAllowed")),
-                            "source_priority": 1
+                            "is_hybrid": False,
+                            "trust_score": 70,
+                            "company_domain": "",
+                            "company_logo_url": None,
+                            "company_tier": 3,
+                            "skills": [],
+                            "salary_min": int(comp.get("minSalary") or 0) or None,
+                            "salary_max": int(comp.get("maxSalary") or 0) or None,
+                            "salary_currency": comp.get("currencyCode", "USD") if comp.get("minSalary") else None,
                         })
             except Exception as e:
                 log.error(f"Wellfound GraphQL error: {e}")
@@ -153,13 +156,25 @@ class WellfoundAdapter(UnifiedAdapter):
                         jobs.append({
                             "title": title,
                             "company": self.company,
-                            "location": "",
+                            "location": "Remote",
                             "description": clean_description(desc),
-                            "url": link,
                             "apply_url": link,
+                            "url": link,
                             "source": self.source,
-                            "posted_date": parse_relative_date(pubDate).isoformat() if pubDate else None,
-                            "source_priority": 2
+                            "source_platform": self.source,
+                            "job_type": "full_time",
+                            "department": "General",
+                            "date_posted": parse_relative_date(pubDate).isoformat() if pubDate else None,
+                            "is_remote": True,
+                            "is_hybrid": False,
+                            "trust_score": 70,
+                            "company_domain": "",
+                            "company_logo_url": None,
+                            "company_tier": 3,
+                            "skills": [],
+                            "salary_min": None,
+                            "salary_max": None,
+                            "salary_currency": None,
                         })
             except Exception as e:
                 log.debug(f"Wellfound RSS failed for {slug}: {e}")
@@ -229,13 +244,24 @@ class WellfoundAdapter(UnifiedAdapter):
                         "title": job_title,
                         "company": company_name,
                         "location": "Remote", 
-                        "description": "", # Difficult to get full desc from cards alone
-                        "url": job_url,
+                        "description": job_title, # Difficult to get full desc from cards alone
                         "apply_url": job_url,
+                        "url": job_url,
                         "source": self.source,
-                        "equity": equity,
-                        "job_type": "full-time",
-                        "source_priority": 3
+                        "source_platform": self.source,
+                        "job_type": "full_time",
+                        "department": "General",
+                        "date_posted": None,
+                        "is_remote": True,
+                        "is_hybrid": False,
+                        "trust_score": 70,
+                        "company_domain": "",
+                        "company_logo_url": None,
+                        "company_tier": 3,
+                        "skills": [],
+                        "salary_min": None,
+                        "salary_max": None,
+                        "salary_currency": None,
                     })
                     
         except ImportError:
@@ -247,7 +273,12 @@ class WellfoundAdapter(UnifiedAdapter):
 
 if __name__ == "__main__":
     adapter = WellfoundAdapter()
-    jobs = asyncio.run(adapter.run())
-    print(f"Fetched {len(jobs)} jobs")
+    jobs = asyncio.run(adapter.fetch_jobs())
+    print(f"{adapter.source}: {len(jobs)} jobs")
     if jobs:
-        print(jobs[0])
+        j = jobs[0]
+        print(f"  Title: {j['title']}")
+        print(f"  Company: {j['company']}")
+        print(f"  Location: {j['location']}")
+        print(f"  URL: {j['apply_url']}")
+        print(f"  Desc preview: {j['description'][:150]}")

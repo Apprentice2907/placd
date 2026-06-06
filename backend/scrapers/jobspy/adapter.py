@@ -57,16 +57,16 @@ class JobSpyAdapter(UnifiedAdapter):
                         country_indeed = "USA" if location == "United States" else location
 
                     # Run in thread pool (jobspy is sync)
+                    from concurrent.futures import ThreadPoolExecutor
+                    executor = ThreadPoolExecutor(max_workers=2)
                     jobs_df = await asyncio.get_event_loop().run_in_executor(
-                        None,
+                        executor,
                         lambda: jobspy.scrape_jobs(
-                            site_name=SITES,
+                            site_name=["indeed"], # start with just indeed
                             search_term=term,
                             location=location,
-                            results_wanted=100,
-                            hours_old=48,  # only recent jobs
-                            country_indeed=country_indeed,
-                            linkedin_fetch_description=True,
+                            results_wanted=50,
+                            hours_old=72,
                             verbose=0,
                         )
                     )
@@ -104,27 +104,41 @@ class JobSpyAdapter(UnifiedAdapter):
             if len(desc) < 50:
                 continue
 
+            from datetime import datetime
+            
             jobs.append({
                 "title": row.get("title", ""),
                 "company": row.get("company", ""),
                 "location": row.get("location", location),
                 "description": desc,
-                "salary_min": row.get("min_amount") if not pd.isna(row.get("min_amount")) else 0,
-                "salary_max": row.get("max_amount") if not pd.isna(row.get("max_amount")) else 0,
-                "salary_currency": row.get("currency", "INR") if not pd.isna(row.get("currency")) else "INR",
-                "job_type": row.get("job_type", "") if not pd.isna(row.get("job_type")) else "",
-                "is_remote": row.get("is_remote", False),
                 "apply_url": apply_url,
-                "date_posted": row.get("date_posted") if not pd.isna(row.get("date_posted")) else None,
+                "url": apply_url,
                 "source": row.get("site", "indeed"),
                 "source_platform": "jobspy",
+                "job_type": row.get("job_type", "") if not pd.isna(row.get("job_type")) else "full_time",
+                "department": "General",
+                "date_posted": row.get("date_posted") if not pd.isna(row.get("date_posted")) else datetime.now().isoformat(),
+                "is_remote": row.get("is_remote", False),
+                "is_hybrid": False,
+                "trust_score": 60,
+                "company_domain": "",
+                "company_logo_url": None,
+                "company_tier": 3,
+                "skills": [],
+                "salary_min": row.get("min_amount") if not pd.isna(row.get("min_amount")) else None,
+                "salary_max": row.get("max_amount") if not pd.isna(row.get("max_amount")) else None,
+                "salary_currency": row.get("currency", "INR") if not pd.isna(row.get("currency")) else "INR",
             })
         return jobs
 
 if __name__ == "__main__":
-    import pandas as pd
-    adapter = JobSpyAdapter(company_config={"name": "global"})
+    adapter = JobSpyAdapter({"name": "global"})
     jobs = asyncio.run(adapter.fetch_jobs())
-    print(f"Total: {len(jobs)} jobs")
+    print(f"{adapter.source}: {len(jobs)} jobs")
     if jobs:
-        print(jobs[0])
+        j = jobs[0]
+        print(f"  Title: {j['title']}")
+        print(f"  Company: {j['company']}")
+        print(f"  Location: {j['location']}")
+        print(f"  URL: {j['apply_url']}")
+        print(f"  Desc preview: {j['description'][:150]}")

@@ -102,16 +102,28 @@ class InternshalaAdapter(UnifiedAdapter):
                         is_wfh = True
 
                     jobs.append({
-                        "url": url.split("?")[0],
-                        "apply_url": url.split("?")[0],
                         "title": title_el.get_text(strip=True) if title_el else "",
                         "company": company_el.get_text(strip=True) if company_el else "",
                         "location": loc_el.get_text(strip=True) if loc_el else "",
-                        "salary": salary_el.get_text(strip=True) if salary_el else "",
-                        "job_type": "internship" if is_internship else "full-time",
-                        "is_remote": is_wfh,
+                        "description": "", # Will be filled in detail fetch
+                        "apply_url": url.split("?")[0],
+                        "url": url.split("?")[0],
                         "source": self.source,
-                        "source_priority": 1,
+                        "source_platform": self.source,
+                        "job_type": "internship" if is_internship else "full_time",
+                        "department": "General",
+                        "date_posted": None,
+                        "is_remote": is_wfh,
+                        "is_hybrid": False,
+                        "trust_score": 60,
+                        "company_domain": "",
+                        "company_logo_url": None,
+                        "company_tier": 3,
+                        "skills": [],
+                        "salary_min": None,
+                        "salary_max": None,
+                        "salary_currency": None,
+                        "salary_raw": salary_el.get_text(strip=True) if salary_el else ""
                     })
                     
                 await asyncio.sleep(1) # respectful delay
@@ -161,7 +173,16 @@ class InternshalaAdapter(UnifiedAdapter):
                 
                 # PPO flag
                 if "ppo" in resp.text.lower() or "pre-placement offer" in resp.text.lower():
-                    job["job_type"] += " (PPO possible)"
+                    job["job_type"] += "_ppo"
+                    
+                # Fix up for rule 4 conformity
+                if "salary_raw" in job:
+                    del job["salary_raw"]
+                if "url" in job:
+                    pass # We keep url for now if it's used elsewhere, but not in rule 4
+                    
+                if type(job.get("skills")) == str:
+                    job["skills"] = [s.strip() for s in job["skills"].split(",") if s.strip()]
                     
                 return job
             except Exception as e:
@@ -170,7 +191,12 @@ class InternshalaAdapter(UnifiedAdapter):
 
 if __name__ == "__main__":
     adapter = InternshalaAdapter()
-    jobs = asyncio.run(adapter.run())
-    print(f"Fetched {len(jobs)} jobs")
+    jobs = asyncio.run(adapter.fetch_jobs())
+    print(f"{adapter.source}: {len(jobs)} jobs")
     if jobs:
-        print(jobs[0])
+        j = jobs[0]
+        print(f"  Title: {j['title']}")
+        print(f"  Company: {j['company']}")
+        print(f"  Location: {j['location']}")
+        print(f"  URL: {j['apply_url']}")
+        print(f"  Desc preview: {j['description'][:150]}")

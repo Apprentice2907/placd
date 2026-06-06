@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Job } from '../lib/api';
 import { JobCard } from './JobCard';
@@ -7,8 +7,6 @@ import { ChevronUp, Briefcase } from 'lucide-react';
 
 interface VirtualJobListProps {
   jobs: Job[];
-  onJobSelect?: (job: Job) => void;
-  selectedJobId?: string | null;
   isLoading: boolean;
   hasNextPage?: boolean;
   onLoadMore?: () => void;
@@ -18,8 +16,6 @@ interface VirtualJobListProps {
 
 export const VirtualJobList: React.FC<VirtualJobListProps> = ({
   jobs,
-  onJobSelect,
-  selectedJobId,
   isLoading,
   hasNextPage,
   onLoadMore,
@@ -29,13 +25,34 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
   const parentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [cols, setCols] = useState(3);
+
+  // Determine columns based on window width
+  useEffect(() => {
+    const updateCols = () => {
+      if (window.innerWidth >= 1280) setCols(3); // Desktop
+      else if (window.innerWidth >= 768) setCols(2); // Tablet
+      else setCols(1); // Mobile
+    };
+    updateCols();
+    window.addEventListener('resize', updateCols);
+    return () => window.removeEventListener('resize', updateCols);
+  }, []);
+
+  // Chunk jobs into rows
+  const rows = useMemo(() => {
+    const chunked = [];
+    for (let i = 0; i < jobs.length; i += cols) {
+      chunked.push(jobs.slice(i, i + cols));
+    }
+    return chunked;
+  }, [jobs, cols]);
 
   const rowVirtualizer = useVirtualizer({
-    count: jobs.length,
+    count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 160,
+    estimateSize: () => 260, // rough height of a job card + gap
     overscan: 5,
-    measureElement: (el) => el.getBoundingClientRect().height,
   });
 
   // IntersectionObserver on sentinel → trigger onLoadMore
@@ -70,8 +87,8 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
   // Loading skeleton
   if (isLoading && jobs.length === 0) {
     return (
-      <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
-        {Array.from({ length: 8 }).map((_, i) => (
+      <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 ${className}`}>
+        {Array.from({ length: 9 }).map((_, i) => (
           <JobCardSkeleton key={i} />
         ))}
       </div>
@@ -82,12 +99,12 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
   if (!isLoading && jobs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="w-20 h-20 rounded-2xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mb-5">
+        <div className="w-20 h-20 rounded-2xl bg-neutral-100 flex items-center justify-center mb-5">
           <Briefcase className="w-10 h-10 text-neutral-400" />
         </div>
-        <h2 className="text-xl font-bold text-[var(--color-text-primary)]">No jobs found</h2>
-        <p className="text-[var(--color-text-secondary)] mt-2 max-w-sm text-sm">
-          No jobs found. Try different filters.
+        <h2 className="text-xl font-bold text-black">No jobs found</h2>
+        <p className="text-neutral-500 mt-2 max-w-sm text-sm">
+          Try adjusting your search or filters to find what you're looking for.
         </p>
       </div>
     );
@@ -96,11 +113,11 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   return (
-    <div className="relative">
+    <div className="relative h-full w-full">
       <div
         ref={parentRef}
-        className={`overflow-y-auto ${className}`}
-        style={{ maxHeight: 'calc(100vh - 220px)' }}
+        className={`overflow-y-auto no-scrollbar ${className}`}
+        style={{ height: 'calc(100vh - 200px)' }}
       >
         <div
           style={{
@@ -110,10 +127,10 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
           }}
         >
           {virtualItems.map((virtualRow) => {
-            const job = jobs[virtualRow.index];
-            if (!job) return null;
+            const rowJobs = rows[virtualRow.index];
+            if (!rowJobs) return null;
             return (
-              <div
+               <div
                 key={virtualRow.key}
                 data-index={virtualRow.index}
                 ref={rowVirtualizer.measureElement}
@@ -126,11 +143,17 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
                   paddingBottom: '16px',
                 }}
               >
-                <JobCard
-                  job={job}
-                  isActive={job.id === selectedJobId}
-                  onOpen={onJobSelect ? () => onJobSelect(job) : undefined}
-                />
+                <div 
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+                >
+                  {rowJobs.map((job) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                    />
+                  ))}
+                </div>
               </div>
             );
           })}
@@ -148,7 +171,7 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
               {[0,1,2].map(i => (
                 <div
                   key={i}
-                  className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce"
+                  className="w-2 h-2 rounded-full bg-black animate-bounce"
                   style={{ animationDelay: `${i * 0.15}s` }}
                 />
               ))}
@@ -161,7 +184,7 @@ export const VirtualJobList: React.FC<VirtualJobListProps> = ({
       {showScrollTop && (
         <button
           onClick={scrollToTop}
-          className="fixed bottom-6 right-6 z-40 p-3 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/30 transition-all hover:scale-105 active:scale-95"
+          className="absolute bottom-6 right-6 z-40 p-3 rounded-full bg-black hover:bg-neutral-800 text-white shadow-lg transition-all hover:scale-105 active:scale-95"
           aria-label="Scroll to top"
         >
           <ChevronUp className="w-5 h-5" />

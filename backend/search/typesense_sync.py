@@ -22,6 +22,7 @@ TYPESENSE_SCHEMA = {
         {"name": "location_city", "type": "string", "optional": True},
         {"name": "location_country", "type": "string", "optional": True},
         {"name": "is_remote", "type": "bool"},
+        {"name": "is_student_eligible", "type": "bool", "facet": True, "optional": True},
         {"name": "seniority_level", "type": "string", "optional": True, "facet": True},
         {"name": "job_function", "type": "string", "optional": True, "facet": True},
         {"name": "skills_required", "type": "string[]", "facet": True, "optional": True},
@@ -115,6 +116,7 @@ class TypesenseSync:
             "title_normalized": job.get("title", "").lower(),
             "company": job.get("company_name", job.get("company", "")),
             "is_remote": bool(job.get("is_remote", False)),
+            "is_student_eligible": bool(job.get("is_student_eligible", False)),
             "created_at": created_at_ts,
             "status": job.get("status", "active"),
         }

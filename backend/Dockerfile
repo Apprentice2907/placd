@@ -1,28 +1,24 @@
-FROM python:3.11-slim
-
-# Create a non-root user
-RUN useradd -m -s /bin/bash appuser
-
-RUN apt-get update && apt-get install -y libreoffice --no-install-recommends
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --default-timeout=100 --no-cache-dir -r requirements.txt
+RUN apt-get update && apt-get install -y \
+    curl wget git gcc g++ \
+    libnss3 libatk-bridge2.0-0 libdrm2 \
+    libxkbcommon0 libgbm1 libasound2 \
+    libxcomposite1 libxdamage1 libxfixes3 \
+    libxrandr2 libpango-1.0-0 libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy source
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
 COPY . .
 
-# Change ownership
-RUN chown -R appuser:appuser /app
-USER appuser
-
-# Healthcheck targeting the FastAPI health endpoint
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+RUN useradd -m placd && chown -R placd:placd /app
+USER placd
 
 EXPOSE 8000
-
-# Default command (can be overridden by docker-compose for celery)
-CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
