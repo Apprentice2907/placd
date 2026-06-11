@@ -99,132 +99,13 @@ export interface CalendarResponse {
 export const api = {
   jobs: {
     search: async (filters: SearchFilters): Promise<JobSearchResponse> => {
-      void filters;
-      // Return mock jobs for UI demonstration
-      const mockJobs: Job[] = [
-        {
-          id: '1',
-          title: 'Frontend Developer',
-          company: 'TechNova',
-          location: 'San Francisco, CA',
-          job_type: 'full-time',
-          is_remote: true,
-          company_logo_url: 'https://logo.clearbit.com/stripe.com',
-          description: 'We are looking for a skilled Frontend Developer to join our team and build amazing UI components.',
-          apply_url: '#',
-          skills: ['React', 'TypeScript', 'TailwindCSS'],
-          stipend_display: '$100K - $150K',
-          who_can_apply: null,
-          created_at: new Date().toISOString(),
-          trust_score: 85,
-          company_tier: 1,
-          is_student_eligible: false,
-          source_platform: 'instahyre'
-        },
-        {
-          id: '2',
-          title: 'Backend Engineer',
-          company: 'DataCore',
-          location: 'Remote',
-          job_type: 'full-time',
-          is_remote: true,
-          company_logo_url: null,
-          description: 'Join DataCore to build highly scalable microservices in Python and Go.',
-          apply_url: '#',
-          skills: ['Python', 'Go', 'Kubernetes'],
-          stipend_display: '$120K - $160K',
-          who_can_apply: null,
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-          trust_score: 90,
-          company_tier: 2,
-          is_student_eligible: false,
-          source_platform: 'linkedin'
-        },
-        {
-          id: '3',
-          title: 'UI/UX Designer',
-          company: 'DesignStudio',
-          location: 'New York, NY',
-          job_type: 'contract',
-          is_remote: false,
-          company_logo_url: 'https://logo.clearbit.com/figma.com',
-          description: 'Looking for a creative UI/UX designer with a strong portfolio.',
-          apply_url: '#',
-          skills: ['Figma', 'Sketch', 'Prototyping'],
-          stipend_display: '$80K - $110K',
-          who_can_apply: null,
-          created_at: new Date(Date.now() - 172800000).toISOString(),
-          trust_score: 80,
-          company_tier: 3,
-          is_student_eligible: true,
-          source_platform: 'instahyre'
-        },
-        {
-          id: '4',
-          title: 'Data Scientist',
-          company: 'AI Dynamics',
-          location: 'London, UK',
-          job_type: 'full-time',
-          is_remote: false,
-          company_logo_url: 'https://logo.clearbit.com/openai.com',
-          description: 'Help us build the next generation of AI models.',
-          apply_url: '#',
-          skills: ['Machine Learning', 'Python', 'TensorFlow'],
-          stipend_display: '£130K - £180K',
-          who_can_apply: null,
-          created_at: new Date(Date.now() - 259200000).toISOString(),
-          trust_score: 95,
-          company_tier: 1,
-          is_student_eligible: false,
-          source_platform: 'greenhouse'
-        },
-        {
-          id: '5',
-          title: 'Product Marketing Manager',
-          company: 'Acme Corp',
-          location: 'Austin, TX',
-          job_type: 'part-time',
-          is_remote: true,
-          company_logo_url: null,
-          description: 'Drive go-to-market strategies and product launches for our flagship enterprise solutions.',
-          apply_url: '#',
-          skills: ['Marketing', 'GTM', 'Strategy'],
-          stipend_display: '$90K - $120K',
-          who_can_apply: null,
-          created_at: new Date(Date.now() - 345600000).toISOString(),
-          trust_score: 88,
-          company_tier: 2,
-          is_student_eligible: false,
-          source_platform: 'lever'
-        },
-        {
-          id: '6',
-          title: 'Software Engineering Intern',
-          company: 'BigTech',
-          location: 'Seattle, WA',
-          job_type: 'internship',
-          is_remote: false,
-          company_logo_url: 'https://logo.clearbit.com/google.com',
-          description: '12-week summer internship program for undergraduate computer science students.',
-          apply_url: '#',
-          skills: ['Java', 'C++', 'Algorithms'],
-          stipend_display: '$8,000 / mo',
-          who_can_apply: null,
-          created_at: new Date(Date.now() - 10000000).toISOString(),
-          trust_score: 99,
-          company_tier: 1,
-          is_student_eligible: true,
-          source_platform: 'workday'
-        }
-      ];
-
-      return {
-        jobs: mockJobs,
-        total: mockJobs.length,
-        page: 1,
-        per_page: 24,
-        has_next: false
-      };
+      try {
+        const { data } = await apiClient.get('/v2/jobs/search', { params: filters });
+        return data;
+      } catch (error) {
+        console.error("Error fetching jobs:", error);
+        return { jobs: [], total: 0, page: 1, per_page: 24, has_next: false };
+      }
     },
     get: async (id: string): Promise<JobDetailResponse> => {
       const { data } = await apiClient.get(`/jobs/${id}`);
