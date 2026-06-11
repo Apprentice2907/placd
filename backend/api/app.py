@@ -5,7 +5,7 @@ import os
 from typing import List, Optional
 from datetime import datetime
 import structlog
-from fastapi import FastAPI, Request, Query, HTTPException, Depends
+from fastapi import FastAPI, Request, Query, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, UUID4
@@ -383,6 +383,15 @@ async def get_stats(request: Request):
     except Exception:
         pass
     return data
+
+@app.get("/api/cron/scrape")
+async def trigger_scrape_cron(request: Request, background_tasks: BackgroundTasks):
+    """Triggers the job scrapers in the background. Called by cron-job.org."""
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/..")
+    from main import run_scrape
+    background_tasks.add_task(run_scrape)
+    return {"status": "started", "message": "Background scrape triggered"}
 
 
 @app.get("/api/stats/quick")

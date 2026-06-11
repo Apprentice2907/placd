@@ -104,7 +104,7 @@ async def run_scraper_safe(name, func, *args, **kwargs):
         if inspect.isclass(func):
             # Instantiate adapter
             adapter = func({"name": "TestCompany", "board_token": "test"})
-            jobs = await adapter.scrape()
+            jobs = await adapter.fetch_jobs()
         else:
             jobs = await func(*args, **kwargs)
             
