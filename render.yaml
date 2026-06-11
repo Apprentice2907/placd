@@ -17,3 +17,18 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+
+  - type: web
+    name: placd-frontend
+    env: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://placd-api.onrender.com/api
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
