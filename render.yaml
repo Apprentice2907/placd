@@ -18,10 +18,8 @@ services:
       - key: GEMINI_API_KEY
         sync: false
 
-  - type: web
+  - type: static
     name: placd-frontend
-    env: static
-    plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
