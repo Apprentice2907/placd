@@ -195,7 +195,7 @@ class TypesenseSync:
     async def search(self, query: str, filters: Dict[str, Any], page: int = 1, per_page: int = 50) -> Dict[str, Any]:
         """Perform a search query."""
         if not TYPESENSE_ENABLED:
-            return {"hits": [], "found": 0, "page": page}
+            raise RuntimeError("Typesense is disabled")
 
         def _do_search():
             self._init_once()
