@@ -56,18 +56,29 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 from api.routers import search
 from api.routers import alerts
 from api.routers import recommendations
+from api import resume
 app.include_router(search.router)
 app.include_router(alerts.router)
 app.include_router(recommendations.router)
+app.include_router(resume.router)
 
 # --- Startup / Shutdown ---
 
 @app.on_event("startup")
 async def startup_event():
     """Verify env vars, PostgreSQL, pgvector, and Redis connectivity on boot."""
+    import asyncio
     from utils.startup_check import run_startup_checks
     results = await run_startup_checks()
     logger.info("startup_complete", checks=results)
+    
+    # Start the liveness background loop for 24/7 standalone operation
+    try:
+        from workers.liveness import liveness_background_loop
+        asyncio.create_task(liveness_background_loop())
+        logger.info("started_liveness_background_loop")
+    except ImportError as e:
+        logger.error("failed_to_import_liveness_background_loop", error=str(e))
 
 
 @app.on_event("shutdown")

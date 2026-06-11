@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: placd-api
+    env: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: Dockerfile
+    healthCheckPath: /api/stats/quick
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: TYPESENSE_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

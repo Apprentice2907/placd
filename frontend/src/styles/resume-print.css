@@ -1,0 +1,54 @@
+@media print {
+  /* Hide UI elements */
+  .no-print, header, footer, nav, button {
+    display: none !important;
+  }
+  
+  /* Reset page styling */
+  @page {
+    margin: 0.5in;
+    size: letter;
+  }
+  
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-size: 11pt; /* Professional baseline */
+    line-height: 1.4;
+    background-color: white !important;
+  }
+  
+  /* Ensure main container takes full width */
+  main, #root, .flex-1 {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-height: 11in;
+    overflow: hidden;
+  }
+  
+  /* Strip backgrounds and enforce pure B&W for ATS */
+  * {
+    color: black !important;
+  }
+  
+  /* Reinstate specific borders needed for structure */
+  .border-b-2 {
+    border-bottom: 2px solid black !important;
+  }
+  .border-b {
+    border-bottom: 1px solid black !important;
+  }
+  
+  /* Ensure page breaks don't happen inside critical elements */
+  h1, h2, h3 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  
+  .mb-5, .mb-4 {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

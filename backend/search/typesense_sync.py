@@ -11,6 +11,8 @@ TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY", "plcd_local_ts_key")
 TYPESENSE_HOST = os.getenv("TYPESENSE_HOST", "localhost")
 TYPESENSE_PORT = os.getenv("TYPESENSE_PORT", "8108")
 TYPESENSE_PROTOCOL = os.getenv("TYPESENSE_PROTOCOL", "http")
+TYPESENSE_ENABLED = os.getenv("TYPESENSE_ENABLED", "true").lower() == "true"
+
 
 TYPESENSE_SCHEMA = {
     "name": "jobs",
@@ -142,6 +144,9 @@ class TypesenseSync:
 
     async def upsert_job(self, job: Dict[str, Any]):
         """Upsert a single job into Typesense."""
+        if not TYPESENSE_ENABLED:
+            return
+
         def _do_upsert():
             self._init_once()
             ts_doc = self._map_job_to_ts(job)
@@ -154,7 +159,7 @@ class TypesenseSync:
 
     async def upsert_batch(self, jobs: List[Dict[str, Any]], batch_size=100):
         """Upsert a list of jobs in batches."""
-        if not jobs:
+        if not TYPESENSE_ENABLED or not jobs:
             return
             
         def _do_upsert_batch():
@@ -173,6 +178,9 @@ class TypesenseSync:
 
     async def delete_job(self, job_id: str):
         """Delete a job from Typesense."""
+        if not TYPESENSE_ENABLED:
+            return
+
         def _do_delete():
             self._init_once()
             self.client.collections['jobs'].documents[job_id].delete()
@@ -186,6 +194,9 @@ class TypesenseSync:
 
     async def search(self, query: str, filters: Dict[str, Any], page: int = 1, per_page: int = 50) -> Dict[str, Any]:
         """Perform a search query."""
+        if not TYPESENSE_ENABLED:
+            return {"hits": [], "found": 0, "page": page}
+
         def _do_search():
             self._init_once()
             search_params = {
@@ -215,6 +226,10 @@ class TypesenseSync:
 
     async def full_reindex(self):
         """Backfill all active jobs from PostgreSQL to Typesense."""
+        if not TYPESENSE_ENABLED:
+            logger.info("typesense_disabled_skipping_reindex")
+            return
+
         from db.connection import AsyncSessionLocal
         from sqlalchemy import text
         

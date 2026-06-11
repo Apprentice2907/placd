@@ -297,3 +297,25 @@ async def _update_freshness_scores():
 def update_freshness_scores_task():
     """Run nightly to recalculate freshness for all active jobs."""
     run_async(_update_freshness_scores())
+
+
+async def liveness_background_loop():
+    """
+    Runs all liveness tasks in a continuous loop for single-process setups 
+    (like Render free tier). This replaces the need for Celery Beat.
+    """
+    logger.info("starting_liveness_background_loop")
+    while True:
+        try:
+            logger.info("running_background_liveness_sweep")
+            await _verify_new_jobs()
+            await _daily_liveness_sweep()
+            await _mark_stale_jobs()
+            await _reactivate_reopened_jobs()
+            await _update_freshness_scores()
+        except Exception as e:
+            logger.error("liveness_background_loop_error", error=str(e))
+        
+        # Sleep for 1 hour before running the sweep again
+        await asyncio.sleep(3600)
+

@@ -1,0 +1,3 @@
+ALTER TABLE user_profile
+ADD COLUMN IF NOT EXISTS resume_profiles JSONB NOT NULL DEFAULT '[]',
+ADD COLUMN IF NOT EXISTS resume_research_cache JSONB NOT NULL DEFAULT '{}';

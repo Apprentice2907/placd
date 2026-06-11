@@ -1,65 +1,51 @@
-# Virtual environment
+# Python
 venv/
 .venv/
-
-# Environment variables
-.env
-
-# Python
+env/
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
+*.pyo
+.pytest_cache/
 *.egg-info/
 dist/
 build/
+.eggs/
 
-# Database
-database/*.db
-database/*.db-journal
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+.next/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Environment
+.env
+.env.local
+.env.production
+*.env
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Outputs
-outputs/*.pdf
-outputs/*.docx
-outputs/*.csv
-
-# Credentials
-credentials.json
-token.json
-
-# Logs and runtime artifacts
+# Logs
 *.log
-*.pid
+logs/
+scraper_results.txt
 
-# Legacy databases
-*.db
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
 
-# Frontend build
-node_modules/
+# Docker volumes (if mapped locally)
+postgres_data/
+redis_data/
+typesense_data/
 
-# Output artifacts
-outputs/
-.env
-*.db
-*.log
-*.pid
-__pycache__/
-.pytest_cache/
-node_modules/
-dist/
-.venv/
-venv/
-outputs/
-_archive/
-*.egg-info/
-.DS_Store
-Thumbs.db
+# Temporary
+*.tmp
+*.bak
+*.backup
+*.orig

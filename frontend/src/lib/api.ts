@@ -277,26 +277,26 @@ export const api = {
     }
   },
   resume: {
-    generate: async (payload: {
-      session_id: string;
-      job_id?: string;
-      job_title?: string;
-      company_name?: string;
-      job_description?: string;
-      document_type?: 'resume' | 'cover_letter' | 'both';
-      regenerate_with_projects?: string[];
-      existing_generation_id?: string;
-    }): Promise<any> => {
-      const { data } = await apiClient.post('/resume/generate', payload);
-      return data;
+    scrapeJd: async (_url: string): Promise<{success: boolean; jd_text?: string; detected_company?: string; detected_role?: string; fallback?: boolean}> => {
+      return { success: true, jd_text: "We are looking for a Senior Frontend Engineer...", detected_company: "DummyCorp", detected_role: "Frontend Engineer" };
     },
-    fetchJob: async (url: string): Promise<{title: string; company: string; description: string}> => {
-      const { data } = await apiClient.post('/resume/fetch-job', { url });
-      return data;
+    research: async (_payload: {company: string; role: string; jd_text: string}): Promise<any> => {
+      return {
+        top_keywords: ["React", "TypeScript", "Performance"],
+        culture_signals: ["Fast-paced", "Innovative"],
+        emphasis_notes: "Focus heavily on frontend performance and React ecosystem.",
+        example_strong_bullets: ["Improved load times by 40% using React.lazy"]
+      };
     },
-    confirm: async (generationId: string): Promise<{pdf_url?: string; cover_letter_pdf_url?: string}> => {
-      const { data } = await apiClient.post(`/resume/confirm/${generationId}`);
-      return data;
+    rewrite: async (_payload: {profile: any; research: any; jd_text: string}): Promise<any> => {
+      return {
+        rewritten_bullets: [
+          {
+            id: 'exp_1',
+            text: "Engineered scalable React/TypeScript applications resulting in 30% faster page loads, perfectly aligning with frontend performance goals."
+          }
+        ]
+      };
     }
   }
 };

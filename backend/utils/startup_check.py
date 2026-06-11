@@ -23,7 +23,10 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_ENV_VARS = ["DATABASE_URL", "REDIS_URL", "GEMINI_API_KEY", "TYPESENSE_API_KEY"]
+TYPESENSE_ENABLED = os.getenv("TYPESENSE_ENABLED", "true").lower() == "true"
+REQUIRED_ENV_VARS = ["DATABASE_URL", "REDIS_URL", "GEMINI_API_KEY"]
+if TYPESENSE_ENABLED:
+    REQUIRED_ENV_VARS.append("TYPESENSE_API_KEY")
 
 
 class StartupCheckFailed(RuntimeError):
@@ -126,6 +129,10 @@ async def check_typesense() -> None:
     Verify Typesense is reachable and responding.
     Raises StartupCheckFailed if not.
     """
+    if not TYPESENSE_ENABLED:
+        logger.info("✓ Typesense connection check skipped (TYPESENSE_ENABLED=false)")
+        return
+
     from search.typesense_sync import typesense_sync
     import asyncio
     

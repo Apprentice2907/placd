@@ -170,5 +170,7 @@ CREATE TABLE IF NOT EXISTS user_profile (
     expected_salary TEXT DEFAULT '',
     is_fresher_seeking BOOLEAN DEFAULT FALSE,
     is_internship_seeking BOOLEAN DEFAULT FALSE,
+    resume_profiles JSONB NOT NULL DEFAULT '[]',
+    resume_research_cache JSONB NOT NULL DEFAULT '{}',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
