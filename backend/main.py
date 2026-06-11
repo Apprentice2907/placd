@@ -102,8 +102,8 @@ async def run_scraper_safe(name, func, *args, **kwargs):
     log.info(f"[{name}] Starting...")
     try:
         if inspect.isclass(func):
-            # Instantiate adapter
-            adapter = func({"name": "TestCompany", "board_token": "test"})
+            # Instantiate adapter without specific company so it uses seed lists
+            adapter = func()
             jobs = await adapter.fetch_jobs()
         else:
             jobs = await func(*args, **kwargs)
