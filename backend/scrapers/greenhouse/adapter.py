@@ -3,6 +3,7 @@ import logging
 from bs4 import BeautifulSoup
 from scrapers.shared.base_adapter import UnifiedAdapter
 from scrapers.shared.utils import clean_description, parse_relative_date
+from discovery.seed_lists import ALL_SEED_LISTS
 
 log = logging.getLogger(__name__)
 
@@ -20,15 +21,14 @@ class GreenhouseAdapter(UnifiedAdapter):
             if getattr(self, 'board_token', None):
                 boards = [{"board_token": self.board_token}]
             else:
-                log.info("Fetching all public Greenhouse boards...")
-                boards_url = "https://boards-api.greenhouse.io/v1/boards"
-                try:
-                    resp = await self._fetch_with_retry(client, boards_url)
-                    data = resp.json()
-                    boards = data if isinstance(data, list) else data.get("boards", [])
-                except Exception as e:
-                    log.error(f"Failed to fetch boards list: {e}")
-                    return []
+                log.info("Fetching all Greenhouse boards from seed lists...")
+                for seed_list in ALL_SEED_LISTS:
+                    for company_entry in seed_list:
+                        if company_entry.get("ats_type") == "greenhouse" and company_entry.get("ats_slug"):
+                            boards.append({
+                                "name": company_entry.get("name"),
+                                "board_token": company_entry.get("ats_slug")
+                            })
 
             log.info(f"Discovered {len(boards)} Greenhouse boards. Beginning extraction...")
             
