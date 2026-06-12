@@ -125,24 +125,28 @@ async def run_scrape(target_source: str = None):
         except Exception as e:
             log.error(f"[{name}] FAILED to import: {e}")
 
-    safe_add("internshala", "scrapers.internshala.detailed", "scrape_internshala_detailed", ["software"], {"max_pages": 1})
-    safe_add("linkedin", "scrapers.linkedin.apify_adapter", "scrape_linkedin_apify", ["software", "remote"], {})
-    safe_add("naukri", "scrapers.naukri.adapter", "scrape_naukri", ["software", "remote"], {})
-    safe_add("wellfound", "scrapers.wellfound.adapter", "scrape_wellfound", ["software", "remote"], {})
+    safe_add("internshala", "scrapers.internshala.adapter", "InternshalaAdapter", [], {})
+    safe_add("linkedin", "scrapers.linkedin.adapter", "LinkedinAdapter", [], {})
+    safe_add("naukri", "scrapers.naukri.adapter", "NaukriAdapter", [], {})
+    safe_add("wellfound", "scrapers.wellfound.adapter", "WellfoundAdapter", [], {})
+    safe_add("himalayas", "scrapers.himalayas.adapter", "HimalayasAdapter", [], {})
     
-    safe_add("amazon", "scrapers.amazon.adapter", "scrape_amazon_jobs", ["software"], {})
-    safe_add("google", "scrapers.google.adapter", "scrape_google_careers", ["software"], {})
-    safe_add("meta", "scrapers.meta.adapter", "scrape_meta_careers", ["software"], {})
-    safe_add("microsoft", "scrapers.microsoft.adapter", "scrape_microsoft_careers", ["software"], {})
+    safe_add("amazon", "scrapers.amazon.adapter", "AmazonAdapter", [], {})
+    safe_add("google", "scrapers.google.adapter", "GoogleAdapter", [], {})
+    safe_add("meta", "scrapers.meta.adapter", "MetaAdapter", [], {})
+    safe_add("microsoft", "scrapers.microsoft.adapter", "MicrosoftAdapter", [], {})
+    safe_add("apple", "scrapers.apple.adapter", "AppleAdapter", [], {})
     
     safe_add("ashby", "scrapers.ashby.adapter", "AshbyAdapter", [], {})
     safe_add("greenhouse", "scrapers.greenhouse.adapter", "GreenhouseAdapter", [], {})
     safe_add("lever", "scrapers.lever.adapter", "LeverAdapter", [], {})
     safe_add("smartrecruiters", "scrapers.smartrecruiters.adapter", "SmartRecruitersAdapter", [], {})
     safe_add("workday", "scrapers.workday.adapter", "WorkdayAdapter", [], {})
+    safe_add("bamboohr", "scrapers.bamboohr.adapter", "BambooHRAdapter", [], {})
+    safe_add("recruitee", "scrapers.recruitee.adapter", "RecruiteeAdapter", [], {})
     
-    safe_add("remoteok", "scrapers.remoteok.adapter", "scrape_remoteok", ["software"], {})
-    safe_add("weworkremotely", "scrapers.weworkremotely.adapter", "scrape_weworkremotely", ["software"], {})
+    safe_add("remoteok", "scrapers.remoteok.adapter", "RemoteOkAdapter", [], {})
+    safe_add("weworkremotely", "scrapers.weworkremotely.adapter", "WeWorkRemotelyAdapter", [], {})
     
     # Opportunities needs a wrapper
     try:
