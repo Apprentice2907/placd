@@ -44,19 +44,9 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # --- CORS ---
-# Read allowed origins from env var (comma-separated list).
-# Example: ALLOWED_ORIGINS=https://placd.vercel.app,https://www.placd.com
-# Falls back to "*" when not set so local dev works without configuration.
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
-_allow_origins: list[str] = (
-    [o.strip() for o in _raw_origins.split(",") if o.strip()]
-    if _raw_origins
-    else ["*"]
-)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allow_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
