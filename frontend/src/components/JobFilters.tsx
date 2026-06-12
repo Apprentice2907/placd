@@ -173,8 +173,8 @@ export const JobFilters: React.FC = () => {
             <CheckboxItem 
               label="Full Time Jobs" 
               count={et.full_time} 
-              checked={isChecked('job_type', 'full-time')} 
-              onChange={() => handlePillToggle('job_type', 'full-time')} 
+              checked={isChecked('job_type', 'fulltime')} 
+              onChange={() => handlePillToggle('job_type', 'fulltime')} 
             />
             <CheckboxItem 
               label="Part Time Jobs" 
@@ -191,8 +191,8 @@ export const JobFilters: React.FC = () => {
             <CheckboxItem 
               label="Internships" 
               count={et.internship} 
-              checked={isChecked('job_type', 'training')} 
-              onChange={() => handlePillToggle('job_type', 'training')} 
+              checked={isChecked('job_type', 'internship')} 
+              onChange={() => handlePillToggle('job_type', 'internship')} 
             />
           </div>
         </FilterSection>
