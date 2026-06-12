@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { SearchFilters } from '../lib/api';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { cn } from '../lib/utils';
 import { ChevronRight } from 'lucide-react';
@@ -71,73 +71,96 @@ const CheckboxItem = ({
   );
 };
 
-interface JobFiltersProps {
-  filters: Omit<SearchFilters, 'page'>;
-  onFilterChange: (newFilters: Partial<Omit<SearchFilters, 'page'>>, immediate?: boolean) => void;
-  stats?: any;
-}
+export const JobFilters: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
 
-export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange }) => {
   const [studentMode, setStudentMode] = useState<boolean>(() => {
     return localStorage.getItem('placd_student_mode') === 'true';
   });
 
-  const [localMin, setLocalMin] = useState(filters.salary_min || '');
-  const [localMax, setLocalMax] = useState(filters.salary_max || '');
+  const [localMin, setLocalMin] = useState(searchParams.get('salary_min') || '');
+  const [localMax, setLocalMax] = useState(searchParams.get('salary_max') || '');
 
-  // Fetch live facet counts — cached for 5 minutes
   const { data: facets } = useQuery({
     queryKey: ['job-facets'],
     queryFn: () => api.jobs.facets(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
   const et = facets?.employment_type ?? {};
   const sn = facets?.seniority ?? {};
 
-  const parsePills = (val?: string): string[] => val ? val.split(',').filter(Boolean) : [];
-  
-  const jobTypes = parsePills(filters.job_type as string);
-  const isRemote = filters.is_remote === true;
-  const seniorities = parsePills(filters.seniority as string);
-
-  const handlePillToggle = (key: string, value: string, current: string[]) => {
+  const handlePillToggle = (key: string, value: string) => {
+    const next = new URLSearchParams(searchParams);
+    const current = next.get(key) ? next.get(key)!.split(',') : [];
     const isChecked = current.includes(value);
-    const updated = isChecked ? current.filter(v => v !== value) : [...current, value];
-    onFilterChange({ [key]: updated.length ? updated.join(',') : undefined } as any, false);
+
+    if (isChecked) {
+      const updated = current.filter(v => v !== value);
+      if (updated.length > 0) {
+        next.set(key, updated.join(','));
+      } else {
+        next.delete(key);
+      }
+    } else {
+      current.push(value);
+      next.set(key, current.join(','));
+    }
+    setSearchParams(next, { replace: false });
   };
 
-  const handleApply = () => {
-    onFilterChange({ ...filters }, true);
+  const isChecked = (key: string, value: string) => {
+    const current = searchParams.get(key) ? searchParams.get(key)!.split(',') : [];
+    return current.includes(value);
+  };
+
+  const handleRemoteToggle = () => {
+    const next = new URLSearchParams(searchParams);
+    if (next.get('is_remote') === 'true') {
+      next.delete('is_remote');
+    } else {
+      next.set('is_remote', 'true');
+    }
+    setSearchParams(next, { replace: false });
   };
 
   const handleReset = () => {
     setStudentMode(false);
     setLocalMin('');
     setLocalMax('');
-    onFilterChange({
-      job_type: undefined,
-      is_remote: undefined,
-      seniority: undefined,
-      salary_min: undefined,
-      salary_max: undefined,
-      student_mode: undefined
-    } as any, true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('job_type');
+    next.delete('is_remote');
+    next.delete('seniority');
+    next.delete('salary_min');
+    next.delete('salary_max');
+    next.delete('student_mode');
+    setSearchParams(next, { replace: false });
   };
 
   useEffect(() => {
     localStorage.setItem('placd_student_mode', String(studentMode));
-    if (studentMode !== filters.student_mode) {
-      onFilterChange({ student_mode: studentMode || undefined } as any, false);
+    const next = new URLSearchParams(searchParams);
+    if (studentMode) {
+      next.set('student_mode', 'true');
+    } else {
+      next.delete('student_mode');
     }
-  }, [studentMode, onFilterChange, filters]);
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: false });
+    }
+  }, [studentMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSalaryBlur = () => {
-    onFilterChange({ 
-      salary_min: localMin ? Number(localMin) : undefined,
-      salary_max: localMax ? Number(localMax) : undefined
-    }, false);
+    const next = new URLSearchParams(searchParams);
+    if (localMin) next.set('salary_min', localMin);
+    else next.delete('salary_min');
+    
+    if (localMax) next.set('salary_max', localMax);
+    else next.delete('salary_max');
+    
+    setSearchParams(next, { replace: false });
   };
 
   return (
@@ -150,26 +173,26 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange 
             <CheckboxItem 
               label="Full Time Jobs" 
               count={et.full_time} 
-              checked={jobTypes.includes('full-time')} 
-              onChange={() => handlePillToggle('job_type', 'full-time', jobTypes)} 
+              checked={isChecked('job_type', 'full-time')} 
+              onChange={() => handlePillToggle('job_type', 'full-time')} 
             />
             <CheckboxItem 
               label="Part Time Jobs" 
               count={et.part_time} 
-              checked={jobTypes.includes('part-time')} 
-              onChange={() => handlePillToggle('job_type', 'part-time', jobTypes)} 
+              checked={isChecked('job_type', 'part-time')} 
+              onChange={() => handlePillToggle('job_type', 'part-time')} 
             />
             <CheckboxItem 
               label="Remote Jobs" 
               count={et.remote} 
-              checked={isRemote} 
-              onChange={() => onFilterChange({ is_remote: isRemote ? undefined : true } as any)} 
+              checked={searchParams.get('is_remote') === 'true'} 
+              onChange={handleRemoteToggle} 
             />
             <CheckboxItem 
               label="Internships" 
               count={et.internship} 
-              checked={jobTypes.includes('training')} 
-              onChange={() => handlePillToggle('job_type', 'training', jobTypes)} 
+              checked={isChecked('job_type', 'training')} 
+              onChange={() => handlePillToggle('job_type', 'training')} 
             />
           </div>
         </FilterSection>
@@ -180,38 +203,38 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange 
             <CheckboxItem 
               label="Student Level" 
               count={sn.student} 
-              checked={seniorities.includes('student')} 
-              onChange={() => handlePillToggle('seniority', 'student', seniorities)} 
+              checked={isChecked('seniority', 'student')} 
+              onChange={() => handlePillToggle('seniority', 'student')} 
             />
             <CheckboxItem 
               label="Entry Level" 
               count={sn.entry} 
-              checked={seniorities.includes('entry')} 
-              onChange={() => handlePillToggle('seniority', 'entry', seniorities)} 
+              checked={isChecked('seniority', 'entry')} 
+              onChange={() => handlePillToggle('seniority', 'entry')} 
             />
             <CheckboxItem 
               label="Mid Level" 
               count={sn.mid} 
-              checked={seniorities.includes('mid')} 
-              onChange={() => handlePillToggle('seniority', 'mid', seniorities)} 
+              checked={isChecked('seniority', 'mid')} 
+              onChange={() => handlePillToggle('seniority', 'mid')} 
             />
             <CheckboxItem 
               label="Senior Level" 
               count={sn.senior} 
-              checked={seniorities.includes('senior')} 
-              onChange={() => handlePillToggle('seniority', 'senior', seniorities)} 
+              checked={isChecked('seniority', 'senior')} 
+              onChange={() => handlePillToggle('seniority', 'senior')} 
             />
             <CheckboxItem 
               label="Directors" 
               count={sn.director} 
-              checked={seniorities.includes('director')} 
-              onChange={() => handlePillToggle('seniority', 'director', seniorities)} 
+              checked={isChecked('seniority', 'director')} 
+              onChange={() => handlePillToggle('seniority', 'director')} 
             />
             <CheckboxItem 
               label="VP or Above" 
               count={sn.vp} 
-              checked={seniorities.includes('vp')} 
-              onChange={() => handlePillToggle('seniority', 'vp', seniorities)} 
+              checked={isChecked('seniority', 'vp')} 
+              onChange={() => handlePillToggle('seniority', 'vp')} 
             />
           </div>
         </FilterSection>
@@ -281,16 +304,10 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange 
         {/* Bottom Buttons */}
         <div className="pt-2 flex gap-[8px] mb-[24px]">
           <button 
-            onClick={handleApply}
-            className="flex-1 bg-[#111111] text-white text-[13px] font-[600] p-[10px] rounded-[7px]"
-          >
-            APPLY
-          </button>
-          <button 
             onClick={handleReset}
-            className="flex-1 bg-white text-[#111111] border-[1.5px] border-[#D1D5DB] text-[13px] font-[600] p-[10px] rounded-[7px]"
+            className="w-full bg-white text-[#111111] border-[1.5px] border-[#D1D5DB] text-[13px] font-[600] p-[10px] rounded-[7px] hover:bg-gray-50"
           >
-            RESET
+            RESET ALL FILTERS
           </button>
         </div>
 
