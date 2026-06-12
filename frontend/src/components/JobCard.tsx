@@ -34,7 +34,8 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
     return localStorage.getItem(`saved_job_${job.id}`) === 'true';
   });
 
-  const initialAvatar = job.company ? job.company.charAt(0).toUpperCase() : '?';
+  const companyDisplay = (job as any).company_name || job.company || '';
+  const initialAvatar = companyDisplay ? companyDisplay.charAt(0).toUpperCase() : '?';
 
   let parsedSkills: string[] = [];
   if (typeof job.skills === 'string') {
@@ -84,21 +85,21 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
             {job.company_logo_url && !imgError ? (
               <img 
                 src={job.company_logo_url} 
-                alt={job.company} 
+                alt={companyDisplay} 
                 className="w-full h-full object-contain"
                 onError={() => setImgError(true)}
               />
             ) : job.company_domain && !imgError ? (
               <img 
                 src={`https://logo.clearbit.com/${job.company_domain}`} 
-                alt={job.company} 
+                alt={companyDisplay} 
                 className="w-full h-full object-contain"
                 onError={() => setImgError(true)}
               />
             ) : (
               <div 
                 className="w-full h-full flex items-center justify-center text-white font-[700] text-[20px]"
-                style={{ backgroundColor: getAvatarColor(job.company || '') }}
+                style={{ backgroundColor: getAvatarColor(companyDisplay) }}
               >
                 {initialAvatar}
               </div>
@@ -109,7 +110,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
               {truncate(job.title, 40)}
             </h3>
             <p className="text-[11px] font-[600] text-[#888888] tracking-[0.05em] uppercase mt-0.5">
-              {job.company || 'UNKNOWN COMPANY'}
+              {companyDisplay || 'Unknown Company'}
             </p>
           </div>
         </div>

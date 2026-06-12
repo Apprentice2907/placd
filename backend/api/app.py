@@ -96,6 +96,53 @@ class JobStatusRequest(BaseModel):
     status: str
 
 
+# ── Health / Keep-alive ──────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health_check():
+    """Lightweight keep-alive endpoint. Hit every 5 min by cron-job.org to prevent cold starts."""
+    return {"status": "ok"}
+
+
+# ── Cron Scraper Trigger ─────────────────────────────────────────────────────
+
+CRON_SECRET = os.getenv("CRON_SECRET", "")
+
+async def _run_all_scrapers():
+    """Run all scrapers as a background task."""
+    try:
+        import asyncio
+        import sys
+        import os as _os
+        # Ensure PYTHONPATH includes the backend root
+        backend_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        if backend_root not in sys.path:
+            sys.path.insert(0, backend_root)
+        from main import run_scrape
+        logger.info("cron_scraper_started")
+        await run_scrape()
+        logger.info("cron_scraper_finished")
+    except Exception as e:
+        logger.error("cron_scraper_failed", error=str(e))
+
+
+@app.post("/internal/run-scrapers")
+async def trigger_scrapers(
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Cron trigger endpoint. Protected by X-Cron-Secret header.
+    Returns 202 immediately; scrapers run in the background.
+    """
+    secret = request.headers.get("x-cron-secret", "")
+    if not CRON_SECRET or secret != CRON_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    background_tasks.add_task(_run_all_scrapers)
+    logger.info("cron_scraper_triggered")
+    return {"status": "triggered", "message": "Scrapers are running in background"}
+
+
 # --- Endpoints ---
 
 @app.get("/api/jobs")

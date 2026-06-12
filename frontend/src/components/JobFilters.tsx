@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { SearchFilters } from '../lib/api';
+import { api } from '../lib/api';
 import { cn } from '../lib/utils';
 import { ChevronRight } from 'lucide-react';
 
@@ -39,7 +41,7 @@ const CheckboxItem = ({
   onChange,
 }: {
   label: string;
-  count: number;
+  count: number | undefined;
   checked: boolean;
   onChange: () => void;
 }) => {
@@ -61,9 +63,9 @@ const CheckboxItem = ({
       </div>
       <span className={cn(
         "text-[11px] font-[600] px-[7px] py-[1px] rounded-full",
-        checked ? "bg-[#DCFCE7] text-[#16A34A]" : "bg-[#F3F4F6] text-[#666666]"
+        count === undefined ? "bg-[#F3F4F6] text-[#D1D5DB]" : checked ? "bg-[#DCFCE7] text-[#16A34A]" : "bg-[#F3F4F6] text-[#666666]"
       )}>
-        {count}
+        {count ?? '—'}
       </span>
     </label>
   );
@@ -82,6 +84,17 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange 
 
   const [localMin, setLocalMin] = useState(filters.salary_min || '');
   const [localMax, setLocalMax] = useState(filters.salary_max || '');
+
+  // Fetch live facet counts — cached for 5 minutes
+  const { data: facets } = useQuery({
+    queryKey: ['job-facets'],
+    queryFn: () => api.jobs.facets(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: false,
+  });
+
+  const et = facets?.employment_type ?? {};
+  const sn = facets?.seniority ?? {};
 
   const parsePills = (val?: string): string[] => val ? val.split(',').filter(Boolean) : [];
   
@@ -136,25 +149,25 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange 
           <div className="flex flex-col">
             <CheckboxItem 
               label="Full Time Jobs" 
-              count={159} 
+              count={et.full_time} 
               checked={jobTypes.includes('full-time')} 
               onChange={() => handlePillToggle('job_type', 'full-time', jobTypes)} 
             />
             <CheckboxItem 
               label="Part Time Jobs" 
-              count={38} 
+              count={et.part_time} 
               checked={jobTypes.includes('part-time')} 
               onChange={() => handlePillToggle('job_type', 'part-time', jobTypes)} 
             />
             <CheckboxItem 
               label="Remote Jobs" 
-              count={50} 
+              count={et.remote} 
               checked={isRemote} 
               onChange={() => onFilterChange({ is_remote: isRemote ? undefined : true } as any)} 
             />
             <CheckboxItem 
-              label="Training Jobs" 
-              count={15} 
+              label="Internships" 
+              count={et.internship} 
               checked={jobTypes.includes('training')} 
               onChange={() => handlePillToggle('job_type', 'training', jobTypes)} 
             />
@@ -166,37 +179,37 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ filters, onFilterChange 
           <div className="flex flex-col">
             <CheckboxItem 
               label="Student Level" 
-              count={48} 
+              count={sn.student} 
               checked={seniorities.includes('student')} 
               onChange={() => handlePillToggle('seniority', 'student', seniorities)} 
             />
             <CheckboxItem 
               label="Entry Level" 
-              count={51} 
+              count={sn.entry} 
               checked={seniorities.includes('entry')} 
               onChange={() => handlePillToggle('seniority', 'entry', seniorities)} 
             />
             <CheckboxItem 
               label="Mid Level" 
-              count={150} 
+              count={sn.mid} 
               checked={seniorities.includes('mid')} 
               onChange={() => handlePillToggle('seniority', 'mid', seniorities)} 
             />
             <CheckboxItem 
               label="Senior Level" 
-              count={30} 
+              count={sn.senior} 
               checked={seniorities.includes('senior')} 
               onChange={() => handlePillToggle('seniority', 'senior', seniorities)} 
             />
             <CheckboxItem 
               label="Directors" 
-              count={20} 
+              count={sn.director} 
               checked={seniorities.includes('director')} 
               onChange={() => handlePillToggle('seniority', 'director', seniorities)} 
             />
             <CheckboxItem 
               label="VP or Above" 
-              count={15} 
+              count={sn.vp} 
               checked={seniorities.includes('vp')} 
               onChange={() => handlePillToggle('seniority', 'vp', seniorities)} 
             />

@@ -142,22 +142,37 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
     inserted_count = 0
     updated_count = 0
 
+    # Company upsert query — atomically get/create company and return its id
+    company_upsert_query = text("""
+        INSERT INTO companies (name, domain, logo_url)
+        VALUES (:name, :domain, :logo_url)
+        ON CONFLICT (domain) DO UPDATE SET
+            name     = COALESCE(EXCLUDED.name, companies.name),
+            logo_url = COALESCE(EXCLUDED.logo_url, companies.logo_url)
+        RETURNING id
+    """)
+
     query = text("""
         INSERT INTO jobs (
             company_id, external_id, title, description, apply_url, source,
             job_type, location, is_remote, status,
             url_hash, last_verified_at, duplicate_of, freshness_score,
             trust_score, is_spam, spam_reason, company_tier,
-            is_faang, is_internship, is_hybrid, work_mode, is_student_eligible
+            is_faang, is_internship, is_hybrid, work_mode, is_student_eligible,
+            company_name, company_logo_url, company_domain
         ) VALUES (
             :company_id, :external_id, :title, :description, :apply_url, :source,
             :job_type, :location, :is_remote, :status,
             :url_hash, :last_verified_at, :duplicate_of, :freshness_score,
             :trust_score, :is_spam, :spam_reason, :company_tier,
-            :is_faang, :is_internship, :is_hybrid, :work_mode, :is_student_eligible
+            :is_faang, :is_internship, :is_hybrid, :work_mode, :is_student_eligible,
+            :company_name, :company_logo_url, :company_domain
         )
         ON CONFLICT (url_hash) DO UPDATE SET
             company_id       = COALESCE(EXCLUDED.company_id, jobs.company_id),
+            company_name     = COALESCE(EXCLUDED.company_name, jobs.company_name),
+            company_logo_url = COALESCE(EXCLUDED.company_logo_url, jobs.company_logo_url),
+            company_domain   = COALESCE(EXCLUDED.company_domain, jobs.company_domain),
             last_verified_at = EXCLUDED.last_verified_at,
             status           = EXCLUDED.status,
             duplicate_of     = COALESCE(EXCLUDED.duplicate_of, jobs.duplicate_of),
@@ -180,24 +195,49 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
         for job in dict_jobs:
             url = job.get("apply_url") or job.get("url") or str(uuid.uuid4())
             url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
-            
+
             job_status = 'active'
             dup_of = job.get('duplicate_of')
             if dup_of:
                 job_status = 'duplicate'
-                
+
             from utils.freshness import freshness_score
             created_dt = job.get("scraped_at") or datetime.utcnow()
             job_source = source or job.get("source", "unknown")
             f_score = freshness_score(created_dt, created_dt, job_source)
 
+            # --- Company: resolve logo via Clearbit if missing, then upsert ---
+            resolved_company_id = company_id or job.get("company_id")
+            company_name_raw = job.get("company") or job.get("company_name", "")
+            company_domain_raw = job.get("company_domain", "")
+            company_logo_raw = job.get("company_logo_url", "") or ""
+
+            # Attempt Clearbit logo if we have a domain but no logo
+            if company_domain_raw and not company_logo_raw:
+                clean_domain = company_domain_raw.replace("https://", "").replace("http://", "").split("/")[0]
+                company_logo_raw = f"https://logo.clearbit.com/{clean_domain}"
+
+            # Upsert company if we have a name + domain
+            if company_name_raw and company_domain_raw and not resolved_company_id:
+                try:
+                    c_result = await session.execute(company_upsert_query, {
+                        "name": company_name_raw,
+                        "domain": company_domain_raw,
+                        "logo_url": company_logo_raw or None,
+                    })
+                    c_row = c_result.fetchone()
+                    if c_row:
+                        resolved_company_id = str(c_row.id)
+                except Exception as e:
+                    logger.debug(f"company_upsert_skip: {e}")
+
             result = await session.execute(query, {
-                "company_id":      company_id or job.get("company_id"),
+                "company_id":      resolved_company_id,
                 "external_id":     job.get("external_id", ""),
                 "title":           job.get("title", "Unknown"),
                 "description":     job.get("description", ""),
                 "apply_url":       url,
-                "source":          source or job.get("source", "unknown"),
+                "source":          job_source,
                 "job_type":        job.get("job_type", "full-time"),
                 "location":        job.get("location", ""),
                 "is_remote":       job.get("is_remote", False),
@@ -210,12 +250,15 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                 "is_spam":         job.get("is_spam", False),
                 "spam_reason":     job.get("spam_reason"),
                 "company_tier":    job.get("company_tier", 0),
-                # tag_job() computed fields
                 "is_faang":        job.get("is_faang", False),
                 "is_internship":   job.get("is_internship", False),
                 "is_hybrid":       job.get("is_hybrid", False),
                 "work_mode":       job.get("work_mode", "onsite"),
                 "is_student_eligible": job.get("is_student_eligible", False),
+                # Denormalized company fields — no join needed at query time
+                "company_name":     company_name_raw or None,
+                "company_logo_url": company_logo_raw or None,
+                "company_domain":   company_domain_raw or None,
             })
             row = result.fetchone()
             if row:
@@ -227,14 +270,13 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                     updated_count += 1
 
     if db_session:
-        # If passed an active session (e.g. from an existing transaction)
         await _do_upsert(db_session)
     else:
         async with AsyncSessionLocal() as session:
             await _do_upsert(session)
             await session.commit()
 
-    # 2. Sync to Typesense
+    # Sync to Typesense (fire-and-forget)
     try:
         from search.typesense_sync import typesense_sync
         active_jobs = [j for j in dict_jobs if not j.get('duplicate_of') and 'id' in j]
@@ -244,6 +286,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
         logger.error(f"typesense_sync_error: {e}")
 
     return inserted_count, updated_count
+
 
 
 # ─── Job Queries ─────────────────────────────────────────────────────────────

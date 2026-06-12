@@ -1,12 +1,25 @@
 from fastapi import APIRouter, Query, Request
-from typing import Optional, List
+from typing import Optional
 import structlog
 from search.typesense_sync import typesense_sync
-from api.services import get_jobs_api
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/jobs")
+
+
+def _map_job_row(r) -> dict:
+    """Convert a DB row to a clean job dict, removing heavy/internal fields."""
+    d = dict(r._mapping)
+    # Remove the heavy embedding vector
+    d.pop("description_embedding", None)
+    d.pop("search_vector", None)
+    # Serialize datetimes
+    for k, v in d.items():
+        if hasattr(v, "isoformat"):
+            d[k] = v.isoformat()
+    return d
+
 
 @router.get("/search")
 async def search_jobs_v2(
@@ -17,6 +30,7 @@ async def search_jobs_v2(
     seniority: Optional[str] = None,
     function: Optional[str] = None,
     skills: Optional[str] = None,  # comma-separated
+    job_type: Optional[str] = None,
     salary_min: Optional[int] = None,
     salary_max: Optional[int] = None,
     source: Optional[str] = None,
@@ -25,171 +39,211 @@ async def search_jobs_v2(
     work_mode: Optional[str] = Query(None, description="remote|hybrid|onsite"),
     student_mode: Optional[bool] = None,
     status: str = "active",
+    sort: Optional[str] = Query("newest", description="newest|oldest|relevance"),
     page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=100)
+    per_page: int = Query(50, ge=1, le=100),
 ):
     """
-    Search jobs with Typesense backend, fallback to PostgreSQL FTS on failure.
+    Search jobs using the stored GIN tsvector index for fast FTS.
+    Falls back gracefully. Supports full filtering, sorting, and pagination.
     """
-    # Determine trust_score threshold based on quality param
     quality_thresholds = {
-        "high": 80,       # Tier 1 companies + complete data
-        "verified": 50,   # Known companies, complete data
-        "all": 0,         # Everything (power users)
+        "high": 80,
+        "verified": 50,
+        "all": 0,
     }
-    trust_min = quality_thresholds.get(quality or "", 30)  # Default: spam filtered
+    trust_min = quality_thresholds.get(quality or "", 30)
 
-    # Resolve tab filter → boolean column names
     VALID_FILTERS = {"faang", "remote", "internship", "hybrid"}
     VALID_WORK_MODES = {"remote", "hybrid", "onsite"}
     active_filter = filter if filter in VALID_FILTERS else None
     active_work_mode = work_mode if work_mode in VALID_WORK_MODES else None
 
-    filters = {
-        "status": status,
-    }
-    if remote is not None: filters["is_remote"] = remote
-    if seniority: filters["seniority"] = seniority
-    if function: filters["function"] = function
-    # Tab filter → Typesense filter fields
-    if active_filter == "faang":       filters["is_faang"] = True
-    if active_filter == "remote":      filters["is_remote"] = True
-    if active_filter == "internship":  filters["is_internship"] = True
-    if active_filter == "hybrid":      filters["is_hybrid"] = True
-    if active_work_mode:               filters["work_mode"] = active_work_mode
-    if student_mode:                   filters["is_student_eligible"] = True
-    
-    # Typesense query
+    # --- Always go straight to PostgreSQL (Typesense disabled) ---
     try:
-        ts_result = await typesense_sync.search(query=q, filters=filters, page=page, per_page=per_page)
-        
-        jobs = []
-        for hit in ts_result.get("hits", []):
-            doc = hit.get("document", {})
-            # Apply trust_score filter on Typesense results
-            if doc.get("trust_score", 0) >= trust_min:
-                jobs.append(doc)
-            
-        facets = {}
-        for facet in ts_result.get("facet_counts", []):
-            field_name = facet.get("field_name")
-            counts = {count.get("value"): count.get("count") for count in facet.get("counts", [])}
-            facets[field_name] = counts
-            
+        ts_result = await typesense_sync.search(query=q, filters={}, page=page, per_page=per_page)
+        # If we somehow get here with Typesense enabled, handle it
+        jobs = [hit.get("document", {}) for hit in ts_result.get("hits", [])
+                if hit.get("document", {}).get("trust_score", 0) >= trust_min]
+        total = ts_result.get("found", 0)
         return {
             "jobs": jobs,
-            "total": ts_result.get("found", 0),
-            "page": page,
-            "per_page": per_page,
-            "has_next": (page * per_page) < ts_result.get("found", 0),
-            "facets": facets,
-            "search_backend": "typesense",
-            "quality_filter": quality or "default",
-        }
-    except Exception as e:
-        logger.error("typesense_search_failed", error=str(e), fallback="postgres")
-        # Fall back to PostgreSQL FTS via services.py — with trust filter
-        from db.connection import AsyncSessionLocal
-        from sqlalchemy import text as sa_text
-
-        where_parts = ["status = 'active'", "is_spam = FALSE", f"trust_score >= {trust_min}"]
-        params = {"limit": per_page, "offset": (page - 1) * per_page}
-
-        if q:
-            where_parts.append("(to_tsvector('english', COALESCE(title, '') || ' ' || COALESCE(description, '')) @@ websearch_to_tsquery('english', :q))")
-            params["q"] = q
-        if remote:
-            where_parts.append("is_remote = true")
-        if location:
-            where_parts.append("location ILIKE :loc")
-            params["loc"] = f"%{location}%"
-        # Tab filter → Postgres boolean columns
-        if active_filter == "faang":      where_parts.append("is_faang = TRUE")
-        if active_filter == "remote":     where_parts.append("is_remote = TRUE")
-        if active_filter == "internship": where_parts.append("is_internship = TRUE")
-        if active_filter == "hybrid":     where_parts.append("is_hybrid = TRUE")
-        if active_work_mode:
-            where_parts.append("work_mode = :work_mode")
-            params["work_mode"] = active_work_mode
-        if student_mode:
-            where_parts.append("is_student_eligible = TRUE")
-
-        where_sql = " AND ".join(where_parts)
-        
-        async with AsyncSessionLocal() as session:
-            count_res = await session.execute(sa_text(f"SELECT COUNT(*) FROM jobs WHERE {where_sql}"), params)
-            total = count_res.scalar() or 0
-            rows_res = await session.execute(
-                sa_text(f"SELECT * FROM jobs WHERE {where_sql} ORDER BY trust_score DESC, created_at DESC LIMIT :limit OFFSET :offset"),
-                params
-            )
-            rows = rows_res.fetchall()
-        
-        return {
-            "jobs": [dict(r._mapping) for r in rows],
             "total": total,
             "page": page,
             "per_page": per_page,
             "has_next": (page * per_page) < total,
             "facets": {},
-            "search_backend": "postgres",
-            "quality_filter": quality or "default",
+            "search_backend": "typesense",
         }
+    except Exception:
+        pass  # Fall through to Postgres
+
+    from db.connection import AsyncSessionLocal
+    from sqlalchemy import text as sa_text
+
+    where_parts = [f"status = '{status}'", "is_spam = FALSE", f"trust_score >= {trust_min}"]
+    params: dict = {"limit": per_page, "offset": (page - 1) * per_page}
+
+    # --- Full-text search using GIN index (fast!) ---
+    if q and q.strip():
+        where_parts.append("search_vector @@ websearch_to_tsquery('english', :q)")
+        params["q"] = q.strip()
+
+    if remote is not None:
+        where_parts.append("is_remote = :is_remote")
+        params["is_remote"] = remote
+
+    if location:
+        where_parts.append("location ILIKE :loc")
+        params["loc"] = f"%{location}%"
+
+    if job_type:
+        where_parts.append("job_type ILIKE :job_type")
+        params["job_type"] = f"%{job_type}%"
+
+    if seniority:
+        where_parts.append("experience_level ILIKE :seniority")
+        params["seniority"] = f"%{seniority}%"
+
+    if salary_min is not None:
+        where_parts.append("salary_min >= :salary_min")
+        params["salary_min"] = salary_min
+
+    if salary_max is not None:
+        where_parts.append("(salary_max IS NULL OR salary_max <= :salary_max)")
+        params["salary_max"] = salary_max
+
+    if source:
+        where_parts.append("source = :source")
+        params["source"] = source
+
+    if active_filter == "faang":      where_parts.append("is_faang = TRUE")
+    if active_filter == "remote":     where_parts.append("is_remote = TRUE")
+    if active_filter == "internship": where_parts.append("is_internship = TRUE")
+    if active_filter == "hybrid":     where_parts.append("is_hybrid = TRUE")
+
+    if active_work_mode:
+        where_parts.append("work_mode = :work_mode")
+        params["work_mode"] = active_work_mode
+
+    if student_mode:
+        where_parts.append("is_student_eligible = TRUE")
+
+    where_sql = " AND ".join(where_parts)
+
+    # Order by relevance (ts_rank) when searching, else trust_score + recency
+    if q and q.strip() and sort == "newest":
+        order_sql = "ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', :q)) DESC, created_at DESC"
+    elif sort == "oldest":
+        order_sql = "ORDER BY created_at ASC"
+    else:
+        order_sql = "ORDER BY trust_score DESC, created_at DESC"
+
+    async with AsyncSessionLocal() as session:
+        count_res = await session.execute(
+            sa_text(f"SELECT COUNT(*) FROM jobs WHERE {where_sql}"),
+            params
+        )
+        total = count_res.scalar() or 0
+
+        rows_res = await session.execute(
+            sa_text(
+                f"""
+                SELECT id, company_id, external_id, title,
+                       company_name, company_logo_url, company_domain,
+                       location, job_type, is_remote, is_student_eligible,
+                       apply_url, created_at, tags, categories,
+                       salary_min, salary_max, salary_currency,
+                       experience_level, source, status, trust_score,
+                       is_faang, is_internship, is_hybrid, work_mode,
+                       freshness_score
+                FROM jobs WHERE {where_sql}
+                {order_sql}
+                LIMIT :limit OFFSET :offset
+                """
+            ),
+            params
+        )
+        rows = rows_res.fetchall()
+
+    return {
+        "jobs": [_map_job_row(r) for r in rows],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "has_next": (page * per_page) < total,
+        "facets": {},
+        "search_backend": "postgres_gin",
+    }
+
+
+@router.get("/facets")
+async def get_facets():
+    """
+    Returns aggregated filter counts for the sidebar.
+    Cached-friendly — long staleTime on frontend (5 min).
+    """
+    from db.connection import AsyncSessionLocal
+    from sqlalchemy import text as sa_text
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(sa_text("""
+            SELECT
+                COUNT(*) FILTER (WHERE job_type ILIKE '%full%') AS fulltime,
+                COUNT(*) FILTER (WHERE job_type ILIKE '%part%') AS parttime,
+                COUNT(*) FILTER (WHERE is_remote = TRUE) AS remote,
+                COUNT(*) FILTER (WHERE is_internship = TRUE OR job_type ILIKE '%intern%') AS internship,
+
+                COUNT(*) FILTER (WHERE experience_level ILIKE '%intern%' OR experience_level ILIKE '%student%') AS student_level,
+                COUNT(*) FILTER (WHERE experience_level ILIKE '%entry%' OR experience_level ILIKE '%junior%') AS entry_level,
+                COUNT(*) FILTER (WHERE experience_level ILIKE '%mid%' OR experience_level ILIKE '%middle%') AS mid_level,
+                COUNT(*) FILTER (WHERE experience_level ILIKE '%senior%' OR experience_level ILIKE '%sr%') AS senior_level,
+                COUNT(*) FILTER (WHERE experience_level ILIKE '%director%' OR experience_level ILIKE '%lead%') AS director_level,
+                COUNT(*) FILTER (WHERE experience_level ILIKE '%vp%' OR experience_level ILIKE '%vice%' OR experience_level ILIKE '%c-level%') AS vp_level,
+
+                COUNT(*) AS total
+            FROM jobs
+            WHERE status = 'active' AND is_spam = FALSE
+        """))
+        row = dict(res.fetchone()._mapping)
+
+    return {
+        "employment_type": {
+            "full_time": row["fulltime"],
+            "part_time": row["parttime"],
+            "remote": row["remote"],
+            "internship": row["internship"],
+        },
+        "seniority": {
+            "student": row["student_level"],
+            "entry": row["entry_level"],
+            "mid": row["mid_level"],
+            "senior": row["senior_level"],
+            "director": row["director_level"],
+            "vp": row["vp_level"],
+        },
+        "total": row["total"],
+    }
 
 
 @router.get("/featured")
 async def featured_jobs(request: Request):
     """
     Returns top 20 jobs by trust_score from Tier 1 companies.
-    Cached in Redis for 30 minutes.
     """
-    import json
-    import redis.asyncio as aioredis
-    import os
-    
-    REDIS_URL = os.getenv("REDIS_URL", os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"))
-    redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-    
-    cache_key = "api:jobs:featured"
-    try:
-        cached = await redis_client.get(cache_key)
-        if cached:
-            await redis_client.aclose()
-            return json.loads(cached)
-    except Exception:
-        pass
-
     from db.connection import AsyncSessionLocal
     from sqlalchemy import text as sa_text
 
     async with AsyncSessionLocal() as session:
         res = await session.execute(sa_text("""
-            SELECT * FROM jobs 
+            SELECT id, title, company_name, company_logo_url, location,
+                   job_type, is_remote, apply_url, created_at, source,
+                   trust_score, experience_level
+            FROM jobs
             WHERE status = 'active' AND is_spam = FALSE AND trust_score >= 80
-            ORDER BY trust_score DESC, created_at DESC 
+            ORDER BY trust_score DESC, created_at DESC
             LIMIT 20
         """))
         rows = res.fetchall()
 
-    jobs_list = []
-    for r in rows:
-        d = dict(r._mapping)
-        if 'created_at' in d and d['created_at']:
-            d['created_at'] = d['created_at'].isoformat()
-        if 'description_embedding' in d:
-            del d['description_embedding']
-        jobs_list.append(d)
-
-    data = {"jobs": jobs_list, "total": len(jobs_list)}
-    
-    try:
-        await redis_client.setex(cache_key, 1800, json.dumps(data))  # 30 min cache
-    except Exception:
-        pass
-    
-    try:
-        await redis_client.aclose()
-    except Exception:
-        pass
-        
-    return data
+    return {"jobs": [_map_job_row(r) for r in rows], "total": len(rows)}

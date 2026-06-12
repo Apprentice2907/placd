@@ -107,6 +107,18 @@ export const api = {
         return { jobs: [], total: 0, page: 1, per_page: 24, has_next: false };
       }
     },
+    facets: async (): Promise<{
+      employment_type: Record<string, number>;
+      seniority: Record<string, number>;
+      total: number;
+    }> => {
+      try {
+        const { data } = await apiClient.get('/v2/jobs/facets');
+        return data;
+      } catch {
+        return { employment_type: {}, seniority: {}, total: 0 };
+      }
+    },
     get: async (id: string): Promise<JobDetailResponse> => {
       const { data } = await apiClient.get(`/jobs/${id}`);
       return data;
@@ -122,6 +134,7 @@ export const api = {
       return data;
     },
   },
+
   calendar: {
     get: async (year: number, month: number, category: string = 'all', view: string = 'month'): Promise<CalendarResponse> => {
       const { data } = await apiClient.get('/calendar', { params: { year, month, category, view } });
