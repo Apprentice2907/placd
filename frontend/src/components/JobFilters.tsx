@@ -89,30 +89,23 @@ export const JobFilters: React.FC = () => {
   });
 
   const et = facets?.employment_type ?? {};
-  const sn = facets?.seniority ?? {};
 
-  const handlePillToggle = (key: string, value: string) => {
+  // Read checkbox state directly from URL
+  const isChecked = (paramKey: string, value: string) =>
+    searchParams.getAll(paramKey).includes(value);
+
+  // Toggle filter — single update, no local state
+  const toggleFilter = (paramKey: string, value: string) => {
     const next = new URLSearchParams(searchParams);
-    const current = next.get(key) ? next.get(key)!.split(',') : [];
-    const isChecked = current.includes(value);
-
-    if (isChecked) {
-      const updated = current.filter(v => v !== value);
-      if (updated.length > 0) {
-        next.set(key, updated.join(','));
-      } else {
-        next.delete(key);
-      }
+    const existing = next.getAll(paramKey);
+    next.delete(paramKey);
+    
+    if (existing.includes(value)) {
+      existing.filter(v => v !== value).forEach(v => next.append(paramKey, v));
     } else {
-      current.push(value);
-      next.set(key, current.join(','));
+      [...existing, value].forEach(v => next.append(paramKey, v));
     }
     setSearchParams(next, { replace: false });
-  };
-
-  const isChecked = (key: string, value: string) => {
-    const current = searchParams.get(key) ? searchParams.get(key)!.split(',') : [];
-    return current.includes(value);
   };
 
   const handleRemoteToggle = () => {
@@ -132,7 +125,6 @@ export const JobFilters: React.FC = () => {
     const next = new URLSearchParams(searchParams);
     next.delete('job_type');
     next.delete('is_remote');
-    next.delete('seniority');
     next.delete('salary_min');
     next.delete('salary_max');
     next.delete('student_mode');
@@ -174,13 +166,13 @@ export const JobFilters: React.FC = () => {
               label="Full Time Jobs" 
               count={et.full_time} 
               checked={isChecked('job_type', 'fulltime')} 
-              onChange={() => handlePillToggle('job_type', 'fulltime')} 
+              onChange={() => toggleFilter('job_type', 'fulltime')} 
             />
             <CheckboxItem 
               label="Part Time Jobs" 
               count={et.part_time} 
               checked={isChecked('job_type', 'part-time')} 
-              onChange={() => handlePillToggle('job_type', 'part-time')} 
+              onChange={() => toggleFilter('job_type', 'part-time')} 
             />
             <CheckboxItem 
               label="Remote Jobs" 
@@ -192,49 +184,7 @@ export const JobFilters: React.FC = () => {
               label="Internships" 
               count={et.internship} 
               checked={isChecked('job_type', 'internship')} 
-              onChange={() => handlePillToggle('job_type', 'internship')} 
-            />
-          </div>
-        </FilterSection>
-
-        {/* Seniority Level */}
-        <FilterSection label="Seniority Level">
-          <div className="flex flex-col">
-            <CheckboxItem 
-              label="Student Level" 
-              count={sn.student} 
-              checked={isChecked('seniority', 'student')} 
-              onChange={() => handlePillToggle('seniority', 'student')} 
-            />
-            <CheckboxItem 
-              label="Entry Level" 
-              count={sn.entry} 
-              checked={isChecked('seniority', 'entry')} 
-              onChange={() => handlePillToggle('seniority', 'entry')} 
-            />
-            <CheckboxItem 
-              label="Mid Level" 
-              count={sn.mid} 
-              checked={isChecked('seniority', 'mid')} 
-              onChange={() => handlePillToggle('seniority', 'mid')} 
-            />
-            <CheckboxItem 
-              label="Senior Level" 
-              count={sn.senior} 
-              checked={isChecked('seniority', 'senior')} 
-              onChange={() => handlePillToggle('seniority', 'senior')} 
-            />
-            <CheckboxItem 
-              label="Directors" 
-              count={sn.director} 
-              checked={isChecked('seniority', 'director')} 
-              onChange={() => handlePillToggle('seniority', 'director')} 
-            />
-            <CheckboxItem 
-              label="VP or Above" 
-              count={sn.vp} 
-              checked={isChecked('seniority', 'vp')} 
-              onChange={() => handlePillToggle('seniority', 'vp')} 
+              onChange={() => toggleFilter('job_type', 'internship')} 
             />
           </div>
         </FilterSection>

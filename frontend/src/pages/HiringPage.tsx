@@ -14,10 +14,9 @@ export const HiringPage: React.FC = () => {
   // Derived tags for the search bar (e.g. from job_type, skills)
   const tags = useMemo(() => {
     const t = [];
-    if (searchParams.get('skills')) t.push(...searchParams.get('skills')!.split(',').filter(Boolean));
-    if (searchParams.get('job_type')) t.push(...searchParams.get('job_type')!.split(',').filter(Boolean).map(x => x.replace('-', ' ')));
+    t.push(...searchParams.getAll('skills'));
+    t.push(...searchParams.getAll('job_type').map(x => x.replace('-', ' ')));
     if (searchParams.get('is_remote') === 'true') t.push('Remote');
-    if (searchParams.get('seniority')) t.push(...searchParams.get('seniority')!.split(',').filter(Boolean));
     return t;
   }, [searchParams]);
 
@@ -43,25 +42,16 @@ export const HiringPage: React.FC = () => {
     if (tag === 'Remote') {
       next.delete('is_remote');
     } else {
-      const skills = (next.get('skills') || '').split(',').filter(Boolean);
+      const skills = next.getAll('skills');
       if (skills.includes(tag)) {
-        const updated = skills.filter(s => s !== tag);
-        if (updated.length) next.set('skills', updated.join(','));
-        else next.delete('skills');
+        next.delete('skills');
+        skills.filter(s => s !== tag).forEach(s => next.append('skills', s));
       } else {
-        const jobTypes = (next.get('job_type') || '').split(',').filter(Boolean);
+        const jobTypes = next.getAll('job_type');
         const jtMatch = jobTypes.find(jt => jt.replace('-', ' ') === tag);
         if (jtMatch) {
-          const updated = jobTypes.filter(jt => jt !== jtMatch);
-          if (updated.length) next.set('job_type', updated.join(','));
-          else next.delete('job_type');
-        } else {
-          const seniorities = (next.get('seniority') || '').split(',').filter(Boolean);
-          if (seniorities.includes(tag)) {
-            const updated = seniorities.filter(s => s !== tag);
-            if (updated.length) next.set('seniority', updated.join(','));
-            else next.delete('seniority');
-          }
+          next.delete('job_type');
+          jobTypes.filter(jt => jt !== jtMatch).forEach(jt => next.append('job_type', jt));
         }
       }
     }
@@ -74,11 +64,10 @@ export const HiringPage: React.FC = () => {
       sort: searchParams.get('sort') || 'newest',
       status: 'active',
       q: searchParams.get('q') || undefined,
-      job_type: searchParams.get('job_type') || undefined,
+      job_type: searchParams.getAll('job_type').join(',') || undefined,
       is_remote: searchParams.get('is_remote') === 'true' ? true : undefined,
       location: searchParams.get('location') || undefined,
-      seniority: searchParams.get('seniority') || undefined,
-      skills: searchParams.get('skills') || undefined,
+      skills: searchParams.getAll('skills').join(',') || undefined,
       salary_min: searchParams.get('salary_min') ? Number(searchParams.get('salary_min')) : undefined,
       salary_max: searchParams.get('salary_max') ? Number(searchParams.get('salary_max')) : undefined,
     };
