@@ -42,6 +42,7 @@ export interface ResumeProfile {
     databases: string[];
   };
   achievements: string[];
+  raw_resume_text?: string;
 }
 
 export interface ResearchResult {

@@ -171,26 +171,25 @@ export const api = {
     }
   },
   resume: {
-    scrapeJd: async (_url: string): Promise<{success: boolean; jd_text?: string; detected_company?: string; detected_role?: string; fallback?: boolean}> => {
-      return { success: true, jd_text: "We are looking for a Senior Frontend Engineer...", detected_company: "DummyCorp", detected_role: "Frontend Engineer" };
+    saveProfile: async (payload: any) => {
+      const { data } = await apiClient.post('/profile', payload);
+      return data;
     },
-    research: async (_payload: {company: string; role: string; jd_text: string}): Promise<any> => {
-      return {
-        top_keywords: ["React", "TypeScript", "Performance"],
-        culture_signals: ["Fast-paced", "Innovative"],
-        emphasis_notes: "Focus heavily on frontend performance and React ecosystem.",
-        example_strong_bullets: ["Improved load times by 40% using React.lazy"]
-      };
+    getProfile: async (sessionId: string) => {
+      const { data } = await apiClient.get(`/profile/${sessionId}`);
+      return data;
     },
-    rewrite: async (_payload: {profile: any; research: any; jd_text: string}): Promise<any> => {
-      return {
-        rewritten_bullets: [
-          {
-            id: 'exp_1',
-            text: "Engineered scalable React/TypeScript applications resulting in 30% faster page loads, perfectly aligning with frontend performance goals."
-          }
-        ]
-      };
+    fetchJob: async (url: string) => {
+      const { data } = await apiClient.post('/resume/fetch-job', { url });
+      return data;
+    },
+    generate: async (payload: any) => {
+      const { data } = await apiClient.post('/resume/generate', payload);
+      return data;
+    },
+    history: async (sessionId: string) => {
+      const { data } = await apiClient.get(`/resume/history/${sessionId}`);
+      return data;
     }
   }
 };

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Text, Date, DateTime, func, JSON, text
+from sqlalchemy import Column, String, Text, Date, DateTime, func, JSON, text, Integer
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, TIMESTAMP, JSONB
 from sqlalchemy.orm import declarative_base
 
@@ -65,6 +65,29 @@ class Profile(Base):
     certifications  = Column(JSONB, nullable=True)
     achievements    = Column(JSONB, nullable=True)
     languages       = Column(JSONB, nullable=True)
+    raw_resume_text = Column(Text, nullable=True)
     
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now())
+
+class GeneratedResume(Base):
+    __tablename__ = "generated_resumes"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(Text, nullable=False)
+    job_url = Column(Text, nullable=True)
+    job_title = Column(Text, nullable=True)
+    company_name = Column(Text, nullable=True)
+    
+    # AI insights
+    ats_score_before = Column(Integer, nullable=True)
+    ats_score_after = Column(Integer, nullable=True)
+    keywords_missing = Column(ARRAY(Text), nullable=True)
+    keywords_added = Column(ARRAY(Text), nullable=True)
+    recommendations = Column(ARRAY(Text), nullable=True)
+    
+    # File paths / urls
+    docx_url = Column(Text, nullable=True)
+    pdf_url = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

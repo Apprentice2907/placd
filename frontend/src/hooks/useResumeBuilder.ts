@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { api } from '../lib/api';
-import type { ResearchResult, RewriteResult, ResumeProfile } from '../types/resume';
+import type { ResumeProfile } from '../types/resume';
 
 export function useResumeBuilder() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
@@ -8,57 +8,46 @@ export function useResumeBuilder() {
   const [company, setCompany] = useState('');
   const [role, setRole] = useState('');
   
-  const [researchResult, setResearchResult] = useState<ResearchResult | null>(null);
-  const [rewriteResult, setRewriteResult] = useState<RewriteResult | null>(null);
+  const [generateResult, setGenerateResult] = useState<any>(null);
   
-  const [isResearching, setIsResearching] = useState(false);
-  const [isRewriting, setIsRewriting] = useState(false);
-  
+  const [isGenerating, setIsGenerating] = useState(false);
   const [bulletSelections, setBulletSelections] = useState<Record<string, 'original' | 'ai'>>({});
 
   const startAnalysis = useCallback(async (profile: ResumeProfile) => {
     setCurrentStep(3);
-    setIsResearching(true);
-    setIsRewriting(true);
-    setResearchResult(null);
-    setRewriteResult(null);
+    setIsGenerating(true);
+    setGenerateResult(null);
     
-    let research: ResearchResult | null = null;
     try {
-      research = await api.resume.research({ company, role, jd_text: jdText });
-      setResearchResult(research);
-    } catch (e) {
-      console.error(e);
-      research = { top_keywords: [], culture_signals: [], emphasis_notes: "Could not fetch company insights.", example_strong_bullets: [] };
-      setResearchResult(research);
-    } finally {
-      setIsResearching(false);
-    }
+      const sessionId = localStorage.getItem('placd-session-id') || '';
+      
+      const payload = {
+        session_id: sessionId,
+        job_title: role,
+        company_name: company,
+        job_description: jdText,
+        document_type: "resume"
+      };
 
-    try {
-      const rewrite = await api.resume.rewrite({ profile, research, jd_text: jdText });
-      setRewriteResult(rewrite);
+      const result = await api.resume.generate(payload);
+      setGenerateResult(result);
       
       const initialSelections: Record<string, 'original' | 'ai'> = {};
       const allIds = [
         ...(profile.experience || []).map(e => e.id),
         ...(profile.projects || []).map(p => p.id)
       ];
-      const returnedIds = new Set(rewrite.rewritten_bullets?.map((b: any) => b.id) || []);
       
+      // Select AI by default since it returned tailored content
       allIds.forEach(id => {
-        if (returnedIds.has(id)) {
-          initialSelections[id] = 'ai';
-        } else {
-          initialSelections[id] = 'original';
-        }
+        initialSelections[id] = 'ai';
       });
       
       setBulletSelections(initialSelections);
     } catch (e) {
       console.error(e);
     } finally {
-      setIsRewriting(false);
+      setIsGenerating(false);
     }
   }, [company, role, jdText]);
 
@@ -71,8 +60,8 @@ export function useResumeBuilder() {
     jdText, setJdText,
     company, setCompany,
     role, setRole,
-    researchResult, rewriteResult,
-    isResearching, isRewriting,
+    generateResult,
+    isGenerating,
     bulletSelections, toggleBullet,
     startAnalysis
   };

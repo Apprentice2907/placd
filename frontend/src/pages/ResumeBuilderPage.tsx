@@ -8,6 +8,7 @@ import { JobTargetForm } from '../components/resume/JobTargetForm';
 import { AIInsightsPanel } from '../components/resume/AIInsightsPanel';
 import { ResumePreview } from '../components/resume/ResumePreview';
 import { OverflowWarning } from '../components/resume/OverflowWarning';
+import { ResumeHistory } from '../components/resume/ResumeHistory';
 
 import '../styles/resume-print.css';
 
@@ -44,33 +45,35 @@ export const ResumeBuilderPage: React.FC = () => {
         )}
 
         {builder.currentStep === 2 && (
-          <JobTargetForm 
-            jdText={builder.jdText}
-            setJdText={builder.setJdText}
-            company={builder.company}
-            setCompany={builder.setCompany}
-            role={builder.role}
-            setRole={builder.setRole}
-            onAnalyze={() => builder.startAnalysis(profile)}
-          />
+          <>
+            <JobTargetForm 
+              jdText={builder.jdText}
+              setJdText={builder.setJdText}
+              company={builder.company}
+              setCompany={builder.setCompany}
+              role={builder.role}
+              setRole={builder.setRole}
+              onAnalyze={() => builder.startAnalysis(profile)}
+            />
+            <ResumeHistory />
+          </>
         )}
 
         {builder.currentStep === 3 && (
           <AIInsightsPanel 
-            research={builder.researchResult}
-            rewrite={builder.rewriteResult}
-            isRewriting={builder.isRewriting}
+            generateResult={builder.generateResult}
+            isGenerating={builder.isGenerating}
             profile={profile}
             onNext={() => builder.setCurrentStep(4)}
           />
         )}
 
-        {builder.currentStep === 4 && builder.rewriteResult && (
+        {builder.currentStep === 4 && builder.generateResult && (
           <div className="animate-in fade-in">
             <OverflowWarning />
             <ResumePreview 
               profile={profile}
-              rewrite={builder.rewriteResult}
+              rewrite={builder.generateResult}
               bulletSelections={builder.bulletSelections}
               onToggleBullet={builder.toggleBullet}
               onExport={handlePrint}

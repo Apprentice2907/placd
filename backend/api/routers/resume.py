@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.connection import AsyncSessionLocal
 from utils.redis import redis_client
-from models import Profile
+from models import Profile, GeneratedResume
 from utils.config import OUTPUTS_DIR
 from ai.resume_builder import generate_resume_content, generate_cover_letter_content
 from ai.docx_generator import create_resume_docx, create_cover_letter_docx
@@ -145,12 +145,18 @@ async def generate_resume(req: GenerateRequest, db: AsyncSession = Depends(get_d
     }
     profile_json = json.dumps(profile_dict, default=str)
     
+    # Pass raw resume text to AI if available
+    if getattr(profile, "raw_resume_text", None):
+        profile_dict["raw_resume_text"] = profile.raw_resume_text
+        profile_json = json.dumps(profile_dict, default=str)
+    
     generation_id = str(uuid.uuid4())
     match_score = 0
     ats_keywords = []
     selected_projects = []
     docx_url = None
     cover_letter_url = None
+    tailored_data = {}
     
     if req.document_type in ["resume", "both"]:
         # Cheap regeneration check
@@ -174,7 +180,7 @@ async def generate_resume(req: GenerateRequest, db: AsyncSession = Depends(get_d
             await redis_client.setex(f"gen_resume_path:{req.existing_generation_id}", 3600, docx_path)
             generation_id = req.existing_generation_id
         else:
-            tailored_data = generate_resume_content(
+            tailored_data = await generate_resume_content(
                 profile_json, 
                 req.job_title, 
                 req.company_name, 
@@ -193,10 +199,27 @@ async def generate_resume(req: GenerateRequest, db: AsyncSession = Depends(get_d
             
             # Save filepath to redis for pdf confirmation
             await redis_client.setex(f"gen_resume_path:{generation_id}", 3600, docx_path)
+            
+            # Store history permanently in DB
+            new_history = GeneratedResume(
+                id=uuid.UUID(generation_id),
+                session_id=req.session_id,
+                job_url=req.job_id,  # using job_id field for url/id
+                job_title=req.job_title,
+                company_name=req.company_name,
+                ats_score_before=tailored_data.get("ats_score_before"),
+                ats_score_after=tailored_data.get("ats_score_after"),
+                keywords_missing=tailored_data.get("keywords_missing", []),
+                keywords_added=tailored_data.get("keywords_added", []),
+                recommendations=tailored_data.get("recommendations", []),
+                docx_url=docx_url
+            )
+            db.add(new_history)
+            await db.commit()
 
     if req.document_type in ["cover_letter", "both"] and not req.regenerate_with_projects:
         # Don't regenerate cover letter on cheap regeneration
-        cl_content = generate_cover_letter_content(
+        cl_content = await generate_cover_letter_content(
             profile_json,
             profile.full_name or "Candidate",
             req.job_title,
@@ -217,6 +240,13 @@ async def generate_resume(req: GenerateRequest, db: AsyncSession = Depends(get_d
     return {
         "generation_id": generation_id,
         "match_score": match_score,
+        "ats_score_before": tailored_data.get("ats_score_before", 0),
+        "ats_score_after": tailored_data.get("ats_score_after", match_score),
+        "keywords_present": tailored_data.get("keywords_present", []),
+        "keywords_missing": tailored_data.get("keywords_missing", []),
+        "keywords_added": tailored_data.get("keywords_added", []),
+        "recommendations": tailored_data.get("recommendations", []),
+        "sections_to_emphasize": tailored_data.get("sections_to_emphasize", []),
         "ats_keywords": ats_keywords,
         "selected_projects": selected_projects,
         "docx_url": docx_url,
@@ -256,3 +286,23 @@ async def download_file(filename: str):
         
     media_type = "application/pdf" if filename.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return FileResponse(filepath, media_type=media_type, filename=filename)
+
+@router.get("/history/{session_id}")
+async def get_resume_history(session_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(GeneratedResume).where(GeneratedResume.session_id == session_id).order_by(GeneratedResume.created_at.desc())
+    result = await db.execute(stmt)
+    history = result.scalars().all()
+    
+    return [
+        {
+            "id": str(h.id),
+            "job_url": h.job_url,
+            "job_title": h.job_title,
+            "company_name": h.company_name,
+            "ats_score_before": h.ats_score_before,
+            "ats_score_after": h.ats_score_after,
+            "docx_url": h.docx_url,
+            "pdf_url": h.pdf_url,
+            "created_at": h.created_at
+        } for h in history
+    ]

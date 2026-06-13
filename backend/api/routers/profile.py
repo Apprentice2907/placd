@@ -25,6 +25,7 @@ class ProfilePayload(BaseModel):
     certifications: Optional[List[Dict[str, Any]]] = None
     achievements: Optional[List[Dict[str, Any]]] = None
     languages: Optional[List[Dict[str, Any]]] = None
+    raw_resume_text: Optional[str] = None
 
 async def get_db():
     async with AsyncSessionLocal() as session:

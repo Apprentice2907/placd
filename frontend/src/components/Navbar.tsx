@@ -10,7 +10,7 @@ export const Navbar: React.FC = () => {
     { name: 'Finds Jobs', path: '/' },
     { name: 'Company Reviews', path: '/reviews' },
     { name: 'Find Salaries', path: '/salaries' },
-    { name: 'Find Resumes', path: '/resumes' },
+    { name: 'Resume Builder', path: '/resume-builder' },
     { name: 'Employers / Post Job', path: '/post-job' },
   ];
 

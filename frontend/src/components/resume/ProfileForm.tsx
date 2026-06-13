@@ -58,6 +58,19 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
   return (
     <div className="space-y-8 animate-in fade-in max-w-3xl mx-auto pb-10">
       <section>
+        <h2 className="text-xl font-bold border-b border-neutral-200 pb-2 mb-4">Paste Existing Resume (Optional)</h2>
+        <p className="text-sm text-neutral-500 mb-2">
+          Paste your existing resume here and our AI will use it as context. You can skip the manual fields below if you do this!
+        </p>
+        <textarea 
+          className="input-field min-h-[150px]" 
+          placeholder="Paste your full resume text here..." 
+          value={profile.raw_resume_text || ''} 
+          onChange={e => onChange({ ...profile, raw_resume_text: e.target.value })} 
+        />
+      </section>
+
+      <section>
         <h2 className="text-xl font-bold border-b border-neutral-200 pb-2 mb-4">Personal Info</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <input className="input-field" placeholder="Full Name" value={profile.personal.name} onChange={e => updatePersonal('name', e.target.value)} />
