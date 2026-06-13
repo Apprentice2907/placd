@@ -99,20 +99,23 @@ async def search_jobs_v2(
 
     if job_type:
         types = [t.strip() for t in job_type.split(',')]
-        type_conditions = []
+        conditions = []
+        regular_types = []
         for i, t in enumerate(types):
-            if "intern" in t.lower():
-                type_conditions.append("is_internship = TRUE")
-            elif "full" in t.lower():
-                type_conditions.append("job_type ILIKE '%full%'")
-            elif "part" in t.lower():
-                type_conditions.append("job_type ILIKE '%part%'")
+            if t.lower() == "internship":
+                conditions.append("is_internship = TRUE")
             else:
-                type_conditions.append(f"job_type ILIKE :job_type_{i}")
-                params[f"job_type_{i}"] = f"%{t}%"
+                regular_types.append(t)
         
-        if type_conditions:
-            where_parts.append("(" + " OR ".join(type_conditions) + ")")
+        if regular_types:
+            placeholders = []
+            for i, rt in enumerate(regular_types):
+                placeholders.append(f"LOWER(job_type) = LOWER(:job_type_{i})")
+                params[f"job_type_{i}"] = rt
+            conditions.append("(" + " OR ".join(placeholders) + ")")
+            
+        if conditions:
+            where_parts.append("(" + " OR ".join(conditions) + ")")
 
     if seniority:
         where_parts.append("experience_level ILIKE :seniority")
@@ -204,10 +207,10 @@ async def get_facets():
     async with AsyncSessionLocal() as session:
         res = await session.execute(sa_text("""
             SELECT
-                COUNT(*) FILTER (WHERE job_type ILIKE '%full%') AS fulltime,
-                COUNT(*) FILTER (WHERE job_type ILIKE '%part%') AS parttime,
-                COUNT(*) FILTER (WHERE is_remote = TRUE) AS remote,
-                COUNT(*) FILTER (WHERE is_internship = TRUE OR job_type ILIKE '%intern%') AS internship,
+                COUNT(*) FILTER (WHERE LOWER(job_type) = 'fulltime') AS fulltime,
+                COUNT(*) FILTER (WHERE LOWER(job_type) = 'parttime') AS parttime,
+                COUNT(*) FILTER (WHERE is_remote = TRUE OR LOWER(job_type) = 'remote') AS remote,
+                COUNT(*) FILTER (WHERE is_internship = TRUE OR LOWER(job_type) = 'internship') AS internship,
 
                 COUNT(*) FILTER (WHERE experience_level ILIKE '%intern%' OR experience_level ILIKE '%student%') AS student_level,
                 COUNT(*) FILTER (WHERE experience_level ILIKE '%entry%' OR experience_level ILIKE '%junior%') AS entry_level,
