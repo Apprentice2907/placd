@@ -101,10 +101,25 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
 
     original_count = len(dict_jobs)
 
+    def normalize_job_type(raw: str) -> str:
+        if not raw:
+            return "FullTime"
+        raw_clean = raw.lower().replace(" ", "").replace("_", "").replace("-", "")
+        mapping = {
+            "fulltime": "FullTime",
+            "parttime": "PartTime", 
+            "contract": "Contract",
+            "internship": "Internship",
+            "remote": "Remote",
+        }
+        return mapping.get(raw_clean, raw)
+
     # 0. Quality filtering: spam detection + trust scoring
     skipped_spam = 0
     quality_jobs = []
     for job in dict_jobs:
+        job["job_type"] = normalize_job_type(job.get("job_type", ""))
+        
         spam, reason = is_spam(job)
         if spam:
             job["is_spam"] = True
