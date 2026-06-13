@@ -54,7 +54,7 @@ export interface JobDetailResponse {
 export interface SearchFilters {
   q?: string;
   job_type?: string;
-  is_remote?: boolean;
+  remote?: boolean;
   category?: string;
   location?: string;
   experience_level?: string;

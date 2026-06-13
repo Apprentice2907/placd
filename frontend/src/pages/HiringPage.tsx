@@ -11,12 +11,10 @@ export const HiringPage: React.FC = () => {
 
   const [localSearch, setLocalSearch] = useState(searchParams.get('q') || '');
 
-  // Derived tags for the search bar (e.g. from job_type, skills)
+  // Derived tags for the search bar (e.g. from skills)
   const tags = useMemo(() => {
     const t = [];
     t.push(...searchParams.getAll('skills'));
-    t.push(...searchParams.getAll('job_type').map(x => x.replace('-', ' ')));
-    if (searchParams.get('is_remote') === 'true') t.push('Remote');
     return t;
   }, [searchParams]);
 
@@ -65,11 +63,12 @@ export const HiringPage: React.FC = () => {
       status: 'active',
       q: searchParams.get('q') || undefined,
       job_type: searchParams.getAll('job_type').join(',') || undefined,
-      is_remote: searchParams.get('is_remote') === 'true' ? true : undefined,
+      remote: searchParams.get('is_remote') === 'true' ? true : undefined,
       location: searchParams.get('location') || undefined,
       skills: searchParams.getAll('skills').join(',') || undefined,
       salary_min: searchParams.get('salary_min') ? Number(searchParams.get('salary_min')) : undefined,
       salary_max: searchParams.get('salary_max') ? Number(searchParams.get('salary_max')) : undefined,
+      student_mode: searchParams.get('student_mode') === 'true' ? true : undefined,
     };
   }, [searchParams]);
 

@@ -98,20 +98,35 @@ async def search_jobs_v2(
         params["loc"] = f"%{location}%"
 
     if job_type:
-        where_parts.append("job_type ILIKE :job_type")
-        params["job_type"] = f"%{job_type}%"
+        types = [t.strip() for t in job_type.split(',')]
+        type_conditions = []
+        for i, t in enumerate(types):
+            if "intern" in t.lower():
+                type_conditions.append("is_internship = TRUE")
+            elif "full" in t.lower():
+                type_conditions.append("job_type ILIKE '%full%'")
+            elif "part" in t.lower():
+                type_conditions.append("job_type ILIKE '%part%'")
+            else:
+                type_conditions.append(f"job_type ILIKE :job_type_{i}")
+                params[f"job_type_{i}"] = f"%{t}%"
+        
+        if type_conditions:
+            where_parts.append("(" + " OR ".join(type_conditions) + ")")
 
     if seniority:
         where_parts.append("experience_level ILIKE :seniority")
         params["seniority"] = f"%{seniority}%"
 
     if salary_min is not None:
-        where_parts.append("salary_min >= :salary_min")
-        params["salary_min"] = salary_min
+        # The job's maximum salary must be at least the user's minimum requested
+        where_parts.append("(salary_max IS NULL OR salary_max >= :user_salary_min)")
+        params["user_salary_min"] = salary_min
 
     if salary_max is not None:
-        where_parts.append("(salary_max IS NULL OR salary_max <= :salary_max)")
-        params["salary_max"] = salary_max
+        # The job's minimum salary must be at most the user's maximum requested
+        where_parts.append("(salary_min IS NULL OR salary_min <= :user_salary_max)")
+        params["user_salary_max"] = salary_max
 
     if source:
         where_parts.append("source = :source")
