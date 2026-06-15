@@ -69,7 +69,7 @@ SPAM_DESCRIPTION_SIGNALS: list[str] = [
 # ── Quality Thresholds ───────────────────────────────────────────────────────
 
 MINIMUM_QUALITY_THRESHOLDS = {
-    "min_description_length": 100,
+    "min_description_length": 30,  # Reduced from 100 — many real jobs have brief descriptions
     "min_title_length": 5,
     "max_title_length": 150,
     "must_have_apply_url": True,

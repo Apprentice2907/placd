@@ -212,9 +212,8 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
 
             job_status = 'active'
-            dup_of = job.get('duplicate_of')
-            if dup_of:
-                job_status = 'duplicate'
+            # Note: duplicate_of is intentionally not used — the url_hash ON CONFLICT
+            # UPSERT in the INSERT below correctly updates existing jobs as active.
 
             from utils.freshness import freshness_score
             created_dt = job.get("scraped_at") or datetime.utcnow()
@@ -259,7 +258,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                 "status":          job_status,
                 "url_hash":        url_hash,
                 "last_verified_at": job.get("scraped_at") or datetime.utcnow(),
-                "duplicate_of":    dup_of,
+                "duplicate_of":    None,
                 "freshness_score": f_score,
                 "trust_score":     job.get("trust_score", 0),
                 "is_spam":         job.get("is_spam", False),

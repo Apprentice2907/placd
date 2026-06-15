@@ -164,61 +164,41 @@ class JobDeduplicator:
 
     async def bulk_deduplicate(self, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Filter a batch — return only non-duplicate jobs.
-        Also deduplicate within the batch itself before checking index.
-        Modifies jobs in place by setting 'duplicate_of' if it is a dup,
-        but returns ONLY the unique jobs to be saved as new. Wait, if we
-        want to save them as duplicates, we can return all jobs but with 'duplicate_of' set.
-        The prompt says: "Filter a batch — return only non-duplicate jobs. Add duplicate_of VARCHAR column reference if exact duplicate found"
-        If it returns ONLY non-duplicate jobs, they won't be saved with duplicate_of.
-        Ah, the DB upsert might save all jobs, but we want to mark them.
-        Let's modify the batch in place to add duplicate_of, and return the filtered list of strictly NEW unique jobs. 
-        Actually, we can just return the entire list with 'duplicate_of' set, and let the caller UPSERT them all, or just return the unique ones. 
-        Prompt: "Filter a batch — return only non-duplicate jobs"
-        But also "Add duplicate_of VARCHAR column reference if exact duplicate found".
-        If we return only non-duplicate jobs, we won't insert the duplicates at all.
-        Let's yield all jobs with duplicate_of set, so they can be inserted/upserted as duplicates, OR return a filtered list.
-        Let's return the filtered list of UNIQUE jobs, but if we drop a job, we can yield it to a side channel, or maybe it's better to just return the whole list and let the upsert handle `duplicate_of`.
-        Let's re-read carefully: "Filter a batch — return only non-duplicate jobs ... Add duplicate_of VARCHAR column reference if exact duplicate found"
-        I'll return a tuple: (unique_jobs, duplicate_jobs) or just the unique jobs. 
-        Wait, if we filter them OUT, they aren't saved to the DB at all. Then how can they have a duplicate_of column?
-        Ah, perhaps "return only non-duplicate jobs" means for the *return value* of bulk_deduplicate, but the caller might do `unique_jobs = deduplicator.bulk_deduplicate(jobs)` and only save those. If it only saves those, the duplicates aren't saved.
-        If duplicates should be saved (with `duplicate_of`), then `bulk_deduplicate` shouldn't filter them out, or it should return `jobs` with `is_duplicate` flag/field.
-        I will return all jobs, but with `duplicate_of` set. The prompt specifically says "return only non-duplicate jobs".
-        Okay, if I must return only non-duplicate jobs, then maybe I'll yield the duplicates straight to the DB? No, that's messy.
-        Let's just mutate the list in place and return the unique jobs. Wait, if I just return the filtered list, `database.py` won't save the duplicates. 
-        I'll write `bulk_deduplicate` to return `(unique_jobs, duplicate_jobs)` so the caller can handle both!
-        Wait, I'll just return the unique jobs as requested, but also return duplicates.
+        Deduplicates WITHIN the current batch only.
+        
+        We do NOT check against the DB/LSH index because existing jobs re-scraped
+        across runs are correctly handled by the url_hash ON CONFLICT UPSERT in
+        database.py. Checking against the DB index would falsely mark all
+        re-scraped jobs as 'duplicate', hiding them from search results.
+        
+        This method only removes genuine same-batch duplicates (e.g. if two
+        different keyword searches return the same job in one run).
         """
-        if not self.is_loaded:
-            await self.load_index_from_db()
-
         unique_jobs = []
         
-        # Track signatures within this batch to prevent duplicates inside the same batch
-        batch_signatures = {}
+        # Track signatures seen within this batch (by exact url_hash first, then fuzzy)
+        seen_urls: set = set()
+        batch_signatures: dict = {}
 
         for job in jobs:
-            sig = self.text_signature(job)
-            if not sig:
-                unique_jobs.append(job)
+            # Primary dedup: exact URL match (cheapest check first)
+            url = job.get("apply_url") or job.get("url", "")
+            if url and url in seen_urls:
                 continue
-                
-            # 1. Deduplicate within the batch itself
-            if sig in batch_signatures:
-                job['duplicate_of'] = batch_signatures[sig]
-                continue
-                
-            # 2. Deduplicate against the LSH index
-            dup_id = await self.is_duplicate(job)
-            if dup_id:
-                job['duplicate_of'] = dup_id
-            else:
-                # Assign a temporary ID if none exists for batch matching
-                temp_id = job.get('external_id') or str(id(job))
-                batch_signatures[sig] = temp_id
-                unique_jobs.append(job)
+            if url:
+                seen_urls.add(url)
 
+            # Secondary dedup: fuzzy title+company+location within batch
+            sig = self.text_signature(job)
+            if sig and sig in batch_signatures:
+                # Only skip if it's from a different URL (true fuzzy dup)
+                continue
+            if sig:
+                batch_signatures[sig] = url or str(id(job))
+
+            unique_jobs.append(job)
+
+        logger.info(f"Batch dedup: {len(jobs)} in -> {len(unique_jobs)} unique ({len(jobs) - len(unique_jobs)} removed)")
         return unique_jobs
 
 # Global instance
