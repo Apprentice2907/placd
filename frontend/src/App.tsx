@@ -47,9 +47,9 @@ export const App: React.FC = () => {
               <Route path="/jobs/:id" element={<JobDetailPage />} />
               <Route path="/opportunities" element={<OpportunitiesPage />} />
               <Route path="/calendar" element={<HiringCalendarPage />} />
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/resume-builder" element={<ResumeBuilderPage />} />
-              <Route path="/applications" element={<ApplicationsPage />} />
+              <Route path="/profile" element={<div className="h-full overflow-y-auto"><ProfilePage /></div>} />
+              <Route path="/resume-builder" element={<div className="h-full overflow-y-auto"><ResumeBuilderPage /></div>} />
+              <Route path="/applications" element={<div className="h-full overflow-y-auto"><ApplicationsPage /></div>} />
             </Routes>
           </div>
         </div>
