@@ -21,7 +21,7 @@ export const JobTargetForm: React.FC<JobTargetFormProps> = ({ jdText, setJdText,
     if (!jobUrl) return;
     setIsFetching(true);
     try {
-      const data = await api.resume.scrapeJd(jobUrl);
+      const data = await api.resume.fetchJob(jobUrl);
       if (data.success && data.jd_text) {
         setJdText(data.jd_text);
         if (data.detected_company) setCompany(data.detected_company);

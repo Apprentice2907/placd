@@ -9,7 +9,7 @@ interface AIInsightsPanelProps {
   onNext: () => void;
 }
 
-export const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ generateResult, isGenerating, profile, onNext }) => {
+export const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ generateResult, isGenerating, onNext }) => {
   if (isGenerating) {
     return <div className="text-center py-20 text-indigo-500 font-medium flex flex-col items-center gap-4"><RefreshCw className="w-8 h-8 animate-spin"/> Generating tailored resume & insights...</div>;
   }
