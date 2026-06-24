@@ -70,3 +70,10 @@ export interface FlatBulletItem {
   stack?: string[];
   raw_bullets: string[];
 }
+
+export interface KeywordTag {
+  keyword: string;
+  status: 'PRESENT' | 'MISSING';
+}
+
+export type AnalysisPhase = 'generating' | 'critiquing' | 'refining' | 'keywords' | null;

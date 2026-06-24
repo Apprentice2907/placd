@@ -1,54 +1,74 @@
 @media print {
-  /* Hide UI elements */
-  .no-print, header, footer, nav, button {
+  /* Hide everything by default */
+  body > * {
     display: none !important;
   }
-  
-  /* Reset page styling */
-  @page {
-    margin: 0.5in;
-    size: letter;
+
+  /* Show ONLY the resume paper */
+  #resume-preview-paper {
+    display: block !important;
   }
-  
-  body {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    font-size: 11pt; /* Professional baseline */
-    line-height: 1.4;
-    background-color: white !important;
-  }
-  
-  /* Ensure main container takes full width */
-  main, #root, .flex-1 {
-    width: 100% !important;
-    max-width: none !important;
+
+  /* Walk up to root — make parents visible but transparent */
+  body,
+  #root {
+    display: block !important;
     margin: 0 !important;
     padding: 0 !important;
-    max-height: 11in;
-    overflow: hidden;
+    background: white !important;
   }
-  
-  /* Strip backgrounds and enforce pure B&W for ATS */
+
+  /* Ensure the paper itself is the only thing shown */
+  #resume-preview-paper {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0.6in !important;
+    margin: 0 !important;
+  }
+
+  /* Page settings */
+  @page {
+    margin: 0;
+    size: letter portrait;
+  }
+
+  /* Force exact colors — preserve black text on white */
   * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     color: black !important;
+    background-color: transparent !important;
   }
-  
-  /* Reinstate specific borders needed for structure */
-  .border-b-2 {
-    border-bottom: 2px solid black !important;
+
+  #resume-preview-paper {
+    background-color: white !important;
   }
-  .border-b {
-    border-bottom: 1px solid black !important;
-  }
-  
-  /* Ensure page breaks don't happen inside critical elements */
+
+  /* No page breaks inside sections */
   h1, h2, h3 {
     page-break-after: avoid;
     break-after: avoid;
   }
-  
-  .mb-5, .mb-4 {
+
+  div, ul, li {
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+
+  /* Reinstate borders used in the resume layout */
+  hr {
+    border-top: 1px solid black !important;
+    border-color: black !important;
+  }
+
+  /* Hide toggle UI, only show print-only bullets */
+  .print\:hidden {
+    display: none !important;
+  }
+  .hidden.print\:block {
+    display: block !important;
   }
 }

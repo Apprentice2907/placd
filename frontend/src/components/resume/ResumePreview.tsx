@@ -1,7 +1,7 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import type { ResumeProfile, RewriteResult } from '../../types/resume';
 import { BulletToggle } from './BulletToggle';
-import { Download, FileText } from 'lucide-react';
+import { Download, ArrowLeft } from 'lucide-react';
 
 interface ResumePreviewProps {
   profile: ResumeProfile;
@@ -11,71 +11,135 @@ interface ResumePreviewProps {
   onExport: () => void;
 }
 
-export const ResumePreview: React.FC<ResumePreviewProps> = ({ profile, rewrite, bulletSelections, onToggleBullet, onExport }) => {
-  const contentRef = useRef<HTMLDivElement>(null);
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <div className="mb-3 mt-5 first:mt-0">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-700 font-serif">
+        {title}
+      </h2>
+      <hr className="border-t border-gray-800 mt-0.5" />
+    </div>
+  );
+}
 
-  const getRewritten = (id: string) => {
-    return rewrite.rewritten_bullets?.find(b => b.id === id)?.bullets || [];
-  };
+export const ResumePreview: React.FC<ResumePreviewProps> = ({
+  profile, rewrite, bulletSelections, onToggleBullet, onExport
+}) => {
+  const getRewritten = (id: string) =>
+    rewrite.rewritten_bullets?.find(b => b.id === id)?.bullets || [];
+
+  const contactLine = [
+    profile.personal.email,
+    profile.personal.phone,
+    profile.personal.location,
+  ].filter(Boolean).join(' | ');
+
+  const linksLine = [
+    profile.personal.linkedin,
+    profile.personal.github,
+    profile.personal.portfolio,
+  ].filter(Boolean).join(' | ');
+
+  const allSkills = rewrite.skills_reordered?.length > 0
+    ? rewrite.skills_reordered
+    : [
+        ...profile.skills.languages,
+        ...profile.skills.frameworks,
+        ...profile.skills.tools,
+        ...profile.skills.databases,
+      ].filter(Boolean);
 
   return (
-    <div className="max-w-5xl mx-auto flex flex-col md:flex-row gap-6 animate-in fade-in pb-10 items-start">
-      <div className="flex-1 bg-white text-black border border-neutral-200 p-8 shadow-sm print:shadow-none print:border-none print:p-0 min-h-[1056px] w-full" ref={contentRef}>
-        <div className="text-center space-y-1 border-b-2 border-black pb-4 mb-4">
-          <h1 className="text-3xl font-bold uppercase tracking-wider">{profile.personal.name || 'Your Name'}</h1>
-          <p className="text-sm text-neutral-600">
-            {[profile.personal.email, profile.personal.phone, profile.personal.location].filter(Boolean).join(' | ')}
-          </p>
-          <p className="text-sm text-neutral-600">
-            {[profile.personal.linkedin, profile.personal.github].filter(Boolean).join(' | ')}
-          </p>
+    <div className="max-w-5xl mx-auto flex flex-col lg:flex-row gap-6 animate-in fade-in pb-10 items-start">
+
+      {/* ── A4 Paper ── */}
+      <div
+        id="resume-preview-paper"
+        className="flex-1 bg-white text-black shadow-2xl print:shadow-none"
+        style={{
+          fontFamily: 'Georgia, "Times New Roman", serif',
+          minHeight: '1056px',
+          padding: '0.75in',
+          fontSize: '11pt',
+          lineHeight: '1.45',
+        }}
+      >
+        {/* Name */}
+        <div className="text-center mb-3" style={{ borderBottom: '2px solid #111', paddingBottom: '10px' }}>
+          <h1 style={{
+            fontSize: '22pt',
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            marginBottom: '4px',
+            fontFamily: 'Georgia, serif',
+          }}>
+            {profile.personal.name || 'Your Name'}
+          </h1>
+          {contactLine && (
+            <p style={{ fontSize: '9.5pt', color: '#444', marginBottom: '2px' }}>{contactLine}</p>
+          )}
+          {linksLine && (
+            <p style={{ fontSize: '9.5pt', color: '#444' }}>{linksLine}</p>
+          )}
         </div>
 
         {/* Summary */}
         {rewrite.summary && (
-          <div className="mb-5">
-            <h2 className="text-md font-bold uppercase tracking-widest border-b border-neutral-300 mb-2 pb-1 text-neutral-800">Summary</h2>
-            <p className="text-sm leading-relaxed">{rewrite.summary}</p>
+          <div>
+            <SectionHeader title="Professional Summary" />
+            <p style={{ fontSize: '10pt', lineHeight: '1.5', color: '#222' }}>{rewrite.summary}</p>
           </div>
         )}
 
         {/* Experience */}
         {profile.experience.length > 0 && (
-          <div className="mb-5">
-            <h2 className="text-md font-bold uppercase tracking-widest border-b border-neutral-300 mb-2 pb-1 text-neutral-800">Experience</h2>
-            <div className="space-y-5">
+          <div>
+            <SectionHeader title="Experience" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {profile.experience.map(exp => {
                 const aiB = getRewritten(exp.id);
                 const hasRewrite = aiB.length > 0;
-                
+                const dateStr = `${exp.start}${exp.end ? ` – ${exp.end}` : ''}`;
+
                 return (
                   <div key={exp.id}>
-                    <div className="flex justify-between items-baseline font-bold text-neutral-900">
-                      <span>{exp.role}</span>
-                      <span className="text-sm font-normal text-neutral-600">{exp.start} {exp.end ? `- ${exp.end}` : ''}</span>
+                    {/* Role + Date */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <span style={{ fontWeight: 700, fontSize: '11pt' }}>{exp.role}</span>
+                      <span style={{ fontSize: '9.5pt', color: '#555' }}>{dateStr}</span>
                     </div>
-                    <div className="italic text-sm mb-1.5 text-neutral-700">{exp.company}</div>
-                    
+                    {/* Company */}
+                    <div style={{ fontStyle: 'italic', fontSize: '10pt', color: '#444', marginBottom: '4px' }}>
+                      {exp.company}{exp.location ? `, ${exp.location}` : ''}
+                    </div>
+
+                    {/* Bullets — screen (with toggle) */}
                     <div className="print:hidden">
                       {hasRewrite ? (
-                        <BulletToggle 
-                          originalBullets={exp.bullets} 
-                          aiBullets={aiB} 
-                          selection={bulletSelections[exp.id] || 'original'} 
-                          onToggle={v => onToggleBullet(exp.id, v)} 
+                        <BulletToggle
+                          originalBullets={exp.bullets}
+                          aiBullets={aiB}
+                          selection={bulletSelections[exp.id] || 'original'}
+                          onToggle={v => onToggleBullet(exp.id, v)}
                         />
                       ) : (
-                        <ul className="list-disc pl-5 text-sm space-y-1">
-                          {exp.bullets.map((b, i) => <li key={i}>{b}</li>)}
+                        <ul style={{ paddingLeft: '14px', margin: 0 }}>
+                          {exp.bullets.filter(Boolean).map((b, i) => (
+                            <li key={i} style={{ fontSize: '10pt', marginBottom: '2px', listStyleType: '\'•  \'' }}>{b}</li>
+                          ))}
                         </ul>
                       )}
                     </div>
-                    
+
+                    {/* Bullets — print only */}
                     <div className="hidden print:block">
-                      <ul className="list-disc pl-5 text-sm space-y-1">
-                        {((bulletSelections[exp.id] === 'ai' && hasRewrite) ? aiB : exp.bullets).map((b, i) => (
-                          <li key={i}>{b}</li>
-                        ))}
+                      <ul style={{ paddingLeft: '14px', margin: 0 }}>
+                        {((bulletSelections[exp.id] === 'ai' && hasRewrite) ? aiB : exp.bullets)
+                          .filter(Boolean)
+                          .map((b, i) => (
+                            <li key={i} style={{ fontSize: '10pt', marginBottom: '2px', listStyleType: '\'•  \'' }}>{b}</li>
+                          ))}
                       </ul>
                     </div>
                   </div>
@@ -87,43 +151,53 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({ profile, rewrite, 
 
         {/* Projects */}
         {profile.projects.length > 0 && (
-          <div className="mb-5">
-            <h2 className="text-md font-bold uppercase tracking-widest border-b border-neutral-300 mb-2 pb-1 text-neutral-800">Projects</h2>
-            <div className="space-y-5">
+          <div>
+            <SectionHeader title="Projects" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {profile.projects.map(proj => {
                 const aiB = getRewritten(proj.id);
                 const hasRewrite = aiB.length > 0;
-                
+
                 return (
                   <div key={proj.id}>
-                    <div className="flex justify-between items-baseline font-bold text-neutral-900 mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span>{proj.name}</span>
-                        {proj.stack.length > 0 && <span className="font-normal text-sm text-neutral-500 italic">| {proj.stack.join(', ')}</span>}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '11pt' }}>{proj.name}</span>
+                        {proj.stack.length > 0 && (
+                          <span style={{ fontStyle: 'italic', fontSize: '9.5pt', color: '#555' }}>
+                            | {proj.stack.join(', ')}
+                          </span>
+                        )}
                       </div>
-                      {proj.link && <a href={proj.link} className="text-xs font-normal text-indigo-600">Link</a>}
+                      {proj.link && (
+                        <span style={{ fontSize: '9pt', color: '#555' }}>{proj.link}</span>
+                      )}
                     </div>
-                    
-                    <div className="print:hidden">
+
+                    <div className="print:hidden" style={{ marginTop: '4px' }}>
                       {hasRewrite ? (
-                        <BulletToggle 
-                          originalBullets={proj.bullets} 
-                          aiBullets={aiB} 
-                          selection={bulletSelections[proj.id] || 'original'} 
-                          onToggle={v => onToggleBullet(proj.id, v)} 
+                        <BulletToggle
+                          originalBullets={proj.bullets}
+                          aiBullets={aiB}
+                          selection={bulletSelections[proj.id] || 'original'}
+                          onToggle={v => onToggleBullet(proj.id, v)}
                         />
                       ) : (
-                        <ul className="list-disc pl-5 text-sm space-y-1">
-                          {proj.bullets.map((b, i) => <li key={i}>{b}</li>)}
+                        <ul style={{ paddingLeft: '14px', margin: 0 }}>
+                          {proj.bullets.filter(Boolean).map((b, i) => (
+                            <li key={i} style={{ fontSize: '10pt', marginBottom: '2px', listStyleType: '\'•  \'' }}>{b}</li>
+                          ))}
                         </ul>
                       )}
                     </div>
-                    
-                    <div className="hidden print:block">
-                      <ul className="list-disc pl-5 text-sm space-y-1">
-                        {((bulletSelections[proj.id] === 'ai' && hasRewrite) ? aiB : proj.bullets).map((b, i) => (
-                          <li key={i}>{b}</li>
-                        ))}
+
+                    <div className="hidden print:block" style={{ marginTop: '4px' }}>
+                      <ul style={{ paddingLeft: '14px', margin: 0 }}>
+                        {((bulletSelections[proj.id] === 'ai' && hasRewrite) ? aiB : proj.bullets)
+                          .filter(Boolean)
+                          .map((b, i) => (
+                            <li key={i} style={{ fontSize: '10pt', marginBottom: '2px', listStyleType: '\'•  \'' }}>{b}</li>
+                          ))}
                       </ul>
                     </div>
                   </div>
@@ -133,29 +207,79 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({ profile, rewrite, 
           </div>
         )}
 
+        {/* Education */}
+        {profile.education.length > 0 && (
+          <div>
+            <SectionHeader title="Education" />
+            {profile.education.map(edu => (
+              <div key={edu.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: '11pt' }}>{edu.institution}</span>
+                  <div style={{ fontSize: '10pt', color: '#444', fontStyle: 'italic' }}>
+                    {edu.degree}{edu.field ? ` in ${edu.field}` : ''}
+                    {edu.gpa ? ` · GPA: ${edu.gpa}` : ''}
+                  </div>
+                </div>
+                <span style={{ fontSize: '9.5pt', color: '#555' }}>{edu.graduation_year}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Skills */}
-        <div className="mb-2">
-          <h2 className="text-md font-bold uppercase tracking-widest border-b border-neutral-300 mb-2 pb-1 text-neutral-800">Skills</h2>
-          <p className="text-sm leading-relaxed">
-            {rewrite.skills_reordered?.length > 0 ? rewrite.skills_reordered.join(', ') : [
-              ...profile.skills.languages, ...profile.skills.frameworks, ...profile.skills.tools, ...profile.skills.databases
-            ].filter(Boolean).join(', ')}
-          </p>
-        </div>
-        
+        {allSkills.length > 0 && (
+          <div>
+            <SectionHeader title="Technical Skills" />
+            <p style={{ fontSize: '10pt', lineHeight: '1.6', color: '#222' }}>
+              {allSkills.join(' · ')}
+            </p>
+          </div>
+        )}
+
+        {/* Achievements */}
+        {profile.achievements?.length > 0 && (
+          <div>
+            <SectionHeader title="Achievements" />
+            <ul style={{ paddingLeft: '14px', margin: 0 }}>
+              {profile.achievements.filter(Boolean).map((ach, i) => (
+                <li key={i} style={{ fontSize: '10pt', marginBottom: '2px', listStyleType: '\'•  \'' }}>{ach}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
-      
-      <div className="w-full md:w-64 shrink-0 space-y-4 no-print sticky top-8">
-        <div className="bg-indigo-50 border border-indigo-100 dark:bg-indigo-900/20 dark:border-indigo-800 p-5 rounded-xl">
-          <h3 className="font-bold text-indigo-900 dark:text-indigo-300 mb-2 flex items-center gap-2"><FileText className="w-4 h-4"/> Ready to export?</h3>
-          <p className="text-sm text-indigo-700 dark:text-indigo-400 mb-5">Review your selections using the toggles on the left, then download your tailored resume.</p>
-          <button 
+
+      {/* ── Sidebar (no-print) ── */}
+      <div className="w-full lg:w-60 shrink-0 space-y-4 no-print sticky top-8">
+        {/* Export */}
+        <div className="p-5 rounded-xl border border-white/10 bg-white/[0.03]">
+          <h3 className="font-semibold text-white text-sm mb-1">Ready to export?</h3>
+          <p className="text-xs text-white/40 mb-4">Toggle bullets using AI or original, then export as PDF.</p>
+          <button
             onClick={onExport}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-sm"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-all duration-200 shadow-[0_0_16px_rgba(168,85,247,0.25)]"
           >
-            <Download className="w-4 h-4"/> Export PDF
+            <Download className="w-4 h-4" /> Export PDF
           </button>
         </div>
+
+        {/* Tips */}
+        <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02]">
+          <p className="text-xs text-white/30 font-semibold uppercase tracking-wider mb-2">Tips</p>
+          <ul className="text-xs text-white/30 space-y-1.5 list-disc pl-4">
+            <li>Toggle each bullet to switch between your original and AI version</li>
+            <li>Green keywords = already present in resume</li>
+            <li>Red keywords = consider adding manually</li>
+            <li>Export prints only the white paper — no UI chrome</li>
+          </ul>
+        </div>
+
+        <button
+          onClick={() => window.history.back()}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-white/30 hover:text-white/50 transition-colors py-2"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to AI Insights
+        </button>
       </div>
     </div>
   );

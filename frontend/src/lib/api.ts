@@ -180,7 +180,7 @@ export const api = {
       return data;
     },
     fetchJob: async (url: string) => {
-      const { data } = await apiClient.post('/resume/fetch-job', { url });
+      const { data } = await apiClient.post('/resume/scrape-jd', { url });
       return data;
     },
     generate: async (payload: any) => {
