@@ -13,8 +13,8 @@ interface JobTargetFormProps {
 }
 
 const inputClass = `
-  w-full px-3 py-2.5 rounded-lg border border-white/10 bg-white/5 text-white text-sm
-  placeholder:text-white/25 focus:outline-none focus:border-purple-500/60 focus:bg-white/8
+  w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm
+  placeholder:text-gray-400 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/20
   transition-all duration-200
 `.trim();
 
@@ -36,7 +36,7 @@ export const JobTargetForm: React.FC<JobTargetFormProps> = ({
         if (data.detected_role) setRole(data.detected_role);
         setInputMode('manual');
       } else {
-        alert("Couldn't extract job details automatically. Please enter manually.");
+        alert("Couldn't extract job details. Please enter manually.");
         setInputMode('manual');
       }
     } catch {
@@ -51,20 +51,20 @@ export const JobTargetForm: React.FC<JobTargetFormProps> = ({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in pb-10">
-      {/* Header */}
+
+      {/* Header + Mode toggle */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Target Job</h2>
-          <p className="text-sm text-white/40 mt-0.5">Paste a job URL or enter details manually</p>
+          <h2 className="text-base font-semibold text-gray-800">Target Job</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Paste a job URL or enter details manually</p>
         </div>
-        {/* Mode Toggle */}
-        <div className="flex p-1 bg-white/5 border border-white/10 rounded-lg">
+        <div className="flex p-1 bg-gray-100 border border-gray-200 rounded-lg">
           <button
             onClick={() => setInputMode('url')}
             className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all duration-200 ${
               inputMode === 'url'
-                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40'
-                : 'text-white/40 hover:text-white/70'
+                ? 'bg-white text-violet-600 border border-violet-200 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             <LinkIcon className="w-3.5 h-3.5" /> URL
@@ -73,8 +73,8 @@ export const JobTargetForm: React.FC<JobTargetFormProps> = ({
             onClick={() => setInputMode('manual')}
             className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all duration-200 ${
               inputMode === 'manual'
-                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40'
-                : 'text-white/40 hover:text-white/70'
+                ? 'bg-white text-violet-600 border border-violet-200 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             <Edit3 className="w-3.5 h-3.5" /> Manual
@@ -82,14 +82,14 @@ export const JobTargetForm: React.FC<JobTargetFormProps> = ({
         </div>
       </div>
 
-      {/* URL Mode */}
+      {/* URL mode */}
       {inputMode === 'url' && (
-        <div className="p-5 rounded-xl border border-white/10 bg-white/[0.03] space-y-4">
-          <p className="text-sm text-white/40">Paste a job posting URL — we'll extract the details automatically.</p>
+        <div className="p-5 rounded-xl border border-gray-200 bg-white shadow-sm space-y-4">
+          <p className="text-sm text-gray-500">Paste a job posting URL — we'll extract the details automatically.</p>
           <div className="flex gap-2">
             <input
               className={`${inputClass} flex-1`}
-              placeholder="https://boards.greenhouse.io/company/jobs/..."
+              placeholder="https://boards.greenhouse.io/..."
               value={jobUrl}
               onChange={e => setJobUrl(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleFetch()}
@@ -97,69 +97,57 @@ export const JobTargetForm: React.FC<JobTargetFormProps> = ({
             <button
               onClick={handleFetch}
               disabled={!jobUrl || isFetching}
-              className="px-5 bg-purple-600 hover:bg-purple-500 disabled:bg-white/10 disabled:text-white/30 text-white text-sm font-semibold rounded-lg flex items-center gap-2 transition-all duration-200 whitespace-nowrap"
+              className="px-5 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold rounded-lg flex items-center gap-2 transition-all duration-200 whitespace-nowrap"
             >
               {isFetching ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Fetch'}
             </button>
           </div>
           <button
             onClick={() => setInputMode('manual')}
-            className="text-xs text-white/30 hover:text-white/50 transition-colors"
+            className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
           >
             Or enter manually →
           </button>
         </div>
       )}
 
-      {/* Manual Mode */}
+      {/* Manual mode */}
       {inputMode === 'manual' && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-          <div className="p-5 rounded-xl border border-white/10 bg-white/[0.03] space-y-4">
+          <div className="p-5 rounded-xl border border-gray-200 bg-white shadow-sm space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-white/40 uppercase tracking-wider block mb-1.5">Company</label>
-                <input
-                  className={inputClass}
-                  placeholder="e.g. Stripe"
-                  value={company}
-                  onChange={e => setCompany(e.target.value)}
-                />
+                <label className="text-xs font-medium text-gray-500 block mb-1.5">Company</label>
+                <input className={inputClass} placeholder="e.g. Stripe" value={company} onChange={e => setCompany(e.target.value)} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/40 uppercase tracking-wider block mb-1.5">Role</label>
-                <input
-                  className={inputClass}
-                  placeholder="e.g. Frontend Engineer"
-                  value={role}
-                  onChange={e => setRole(e.target.value)}
-                />
+                <label className="text-xs font-medium text-gray-500 block mb-1.5">Role</label>
+                <input className={inputClass} placeholder="e.g. Frontend Engineer" value={role} onChange={e => setRole(e.target.value)} />
               </div>
             </div>
             <div>
-              <label className="text-xs font-semibold text-white/40 uppercase tracking-wider block mb-1.5">Job Description</label>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Job Description</label>
               <textarea
-                className={`${inputClass} min-h-[280px]`}
-                placeholder="Paste the full job description here. The more detail, the better the AI tailoring..."
+                className={`${inputClass} min-h-[260px]`}
+                placeholder="Paste the full job description here..."
                 value={jdText}
                 onChange={e => setJdText(e.target.value)}
               />
             </div>
           </div>
 
-          {isReady && (
+          {isReady ? (
             <div className="flex justify-end">
               <button
                 onClick={onAnalyze}
-                className="flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-sm text-white bg-purple-600 hover:bg-purple-500 transition-all duration-200 shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:shadow-[0_0_28px_rgba(168,85,247,0.45)]"
+                className="flex items-center gap-2 px-8 py-2.5 rounded-xl font-semibold text-sm text-white bg-violet-600 hover:bg-violet-700 transition-colors shadow-sm"
               >
                 <Sparkles className="w-4 h-4" />
                 Analyze with AI →
               </button>
             </div>
-          )}
-
-          {!isReady && (
-            <p className="text-center text-xs text-white/25">Fill in Company, Role, and Job Description to continue</p>
+          ) : (
+            <p className="text-center text-xs text-gray-400">Fill in Company, Role, and Job Description to continue</p>
           )}
         </div>
       )}

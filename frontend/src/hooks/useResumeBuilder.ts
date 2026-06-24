@@ -2,72 +2,41 @@ import { useState, useCallback } from 'react';
 import type { ResumeProfile, KeywordTag, AnalysisPhase } from '../types/resume';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+// gemini-1.5-flash: much higher free-tier RPM limits than 2.0
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function callGemini(systemInstruction: string, userMessage: string): Promise<string> {
-  const body = {
-    system_instruction: {
-      parts: [{ text: systemInstruction }]
-    },
-    contents: [
-      { role: 'user', parts: [{ text: userMessage }] }
-    ],
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 4096,
-    }
-  };
-
   const res = await fetch(GEMINI_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+    }),
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err}`);
-  }
-
-  const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
+  return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
 async function callGeminiJSON<T>(systemInstruction: string, userMessage: string): Promise<T> {
-  const body = {
-    system_instruction: {
-      parts: [{ text: systemInstruction }]
-    },
-    contents: [
-      { role: 'user', parts: [{ text: userMessage }] }
-    ],
-    generationConfig: {
-      temperature: 0.3,
-      maxOutputTokens: 4096,
-      responseMimeType: 'application/json',
-    }
-  };
-
   const res = await fetch(GEMINI_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 2048, responseMimeType: 'application/json' },
+    }),
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err}`);
-  }
-
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-  
+  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
+  const text = (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
   try {
-    // Strip markdown code fences if present
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    return JSON.parse(cleaned) as T;
+    return JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()) as T;
   } catch {
-    console.error('Failed to parse Gemini JSON response:', text);
+    console.error('Gemini JSON parse failed:', text);
     return {} as T;
   }
 }
@@ -92,112 +61,62 @@ export function useResumeBuilder() {
     setKeywords([]);
     setAnalysisError(null);
 
+    // Compact profile — omit raw_resume_text to save tokens
     const profileSummary = JSON.stringify({
       personal: profile.personal,
       experience: profile.experience.map(e => ({
-        id: e.id,
-        company: e.company,
-        role: e.role,
-        start: e.start,
-        end: e.end,
-        bullets: e.bullets,
+        id: e.id, company: e.company, role: e.role,
+        start: e.start, end: e.end, bullets: e.bullets,
       })),
       projects: profile.projects.map(p => ({
-        id: p.id,
-        name: p.name,
-        stack: p.stack,
-        bullets: p.bullets,
+        id: p.id, name: p.name, stack: p.stack, bullets: p.bullets,
       })),
       skills: profile.skills,
-      education: profile.education,
-      achievements: profile.achievements,
-      ...(profile.raw_resume_text ? { raw_resume_text: profile.raw_resume_text } : {}),
-    }, null, 2);
+      education: profile.education.map(e => ({
+        id: e.id, institution: e.institution, degree: e.degree,
+        field: e.field, graduation_year: e.graduation_year,
+      })),
+    });
+
+    // Truncate JD to 800 chars to save input tokens
+    const jdShort = jdText.length > 800 ? jdText.slice(0, 800) + '...' : jdText;
 
     try {
       // ── Round 1: Generator ──────────────────────────────────────────────
       setAnalysisPhase('generating');
-      console.log('[Resume AI] Round 1: Generating draft...');
-
-      const generatorSystem = `You are an expert resume writer. Create a strong, ATS-optimized resume tailored to the job description provided. 
-Output the resume as a JSON object with this exact shape:
-{
-  "summary": "2-3 sentence professional summary",
-  "rewritten_bullets": [
-    { "id": "exp_1", "bullets": ["bullet 1", "bullet 2"] }
-  ],
-  "skills_reordered": ["skill1", "skill2"],
-  "match_score": 82
-}
-Include ALL experience and project IDs from the profile. Reorder skills so JD-relevant skills come first.`;
-
-      const generatorPrompt = `CANDIDATE PROFILE:
-${profileSummary}
-
-TARGET ROLE: ${role} at ${company}
-
-JOB DESCRIPTION:
-${jdText}
-
-Generate a tailored resume JSON. Use the exact IDs from the profile for rewritten_bullets.`;
+      console.log('[Resume AI] Round 1: Generating...');
 
       const round1Result = await callGeminiJSON<{
         summary: string;
         rewritten_bullets: { id: string; bullets: string[] }[];
         skills_reordered: string[];
         match_score: number;
-      }>(generatorSystem, generatorPrompt);
+      }>(
+        // System (~40 words)
+        `Expert resume writer. Output ATS-optimized resume as JSON: {summary, rewritten_bullets:[{id,bullets}], skills_reordered, match_score}. Max 400 words total. Use exact IDs from profile.`,
+        // User prompt
+        `PROFILE: ${profileSummary}\n\nROLE: ${role} at ${company}\n\nJD: ${jdShort}\n\nReturn JSON only.`
+      );
+      console.log('[Resume AI] Round 1 done');
 
-      console.log('[Resume AI] Round 1 complete:', round1Result);
+      await delay(2000);
 
       // ── Round 2: Critic ─────────────────────────────────────────────────
       setAnalysisPhase('critiquing');
       console.log('[Resume AI] Round 2: Critiquing...');
 
-      const criticSystem = `You are a senior hiring manager at a top tech company who rejects 95% of resumes. Review this resume and list every single flaw bluntly — weak action verbs, missing metrics, vague bullets, ATS keywords missing from the job description, formatting issues, anything that would make you reject it immediately. Be harsh and specific. Output as plain text, numbered list.`;
+      const round2Critique = await callGemini(
+        // System (~35 words)
+        `Senior hiring manager, 95% rejection rate. List every resume flaw: weak verbs, missing metrics, vague bullets, missing ATS keywords. Be blunt. Numbered list only.`,
+        `JD: ${jdShort}\n\nRESUME: ${JSON.stringify(round1Result)}\n\nList flaws:`
+      );
+      console.log('[Resume AI] Round 2 done');
 
-      const criticPrompt = `JOB DESCRIPTION:
-${jdText}
-
-RESUME DRAFT:
-${JSON.stringify(round1Result, null, 2)}
-
-List every flaw. Be brutal. Number each issue.`;
-
-      const round2Critique = await callGemini(criticSystem, criticPrompt);
-      console.log('[Resume AI] Round 2 critique:', round2Critique);
+      await delay(2000);
 
       // ── Round 3: Refiner ────────────────────────────────────────────────
       setAnalysisPhase('refining');
       console.log('[Resume AI] Round 3: Refining...');
-
-      const refinerSystem = `You are an expert resume writer. You have received harsh feedback on a resume draft. Revise the resume to fix every single issue raised in the critique. Make it exceptional.
-Output JSON with this exact shape:
-{
-  "summary": "improved summary",
-  "rewritten_bullets": [
-    { "id": "exp_1", "bullets": ["improved bullet 1", "improved bullet 2"] }
-  ],
-  "skills_reordered": ["skill1", "skill2"],
-  "match_score": 90,
-  "ats_score_before": 60,
-  "ats_score_after": 90,
-  "keywords_added": ["keyword1"],
-  "keywords_missing": ["keyword2"],
-  "recommendations": ["tip1", "tip2"],
-  "sections_to_emphasize": ["section1"]
-}`;
-
-      const refinerPrompt = `ORIGINAL RESUME DRAFT:
-${JSON.stringify(round1Result, null, 2)}
-
-CRITIC FEEDBACK:
-${round2Critique}
-
-JOB DESCRIPTION:
-${jdText}
-
-Fix all critiqued issues and output the improved resume JSON.`;
 
       const finalResult = await callGeminiJSON<{
         summary: string;
@@ -210,11 +129,13 @@ Fix all critiqued issues and output the improved resume JSON.`;
         keywords_missing: string[];
         recommendations: string[];
         sections_to_emphasize: string[];
-      }>(refinerSystem, refinerPrompt);
+      }>(
+        // System (~35 words)
+        `Expert resume writer. Fix all critique issues. Output JSON: {summary, rewritten_bullets:[{id,bullets}], skills_reordered, match_score, ats_score_before, ats_score_after, keywords_added, keywords_missing, recommendations, sections_to_emphasize}.`,
+        `DRAFT: ${JSON.stringify(round1Result)}\n\nCRITIQUE: ${round2Critique}\n\nJD: ${jdShort}\n\nReturn improved JSON:`
+      );
+      console.log('[Resume AI] Round 3 done');
 
-      console.log('[Resume AI] Round 3 final result:', finalResult);
-
-      // Ensure required fields are present
       const safeResult = {
         summary: finalResult.summary || round1Result.summary || '',
         rewritten_bullets: finalResult.rewritten_bullets || round1Result.rewritten_bullets || [],
@@ -229,43 +150,35 @@ Fix all critiqued issues and output the improved resume JSON.`;
         placeholders: [],
         missing_keywords: finalResult.keywords_missing || [],
       };
-
       setGenerateResult(safeResult);
+
+      await delay(2000);
 
       // ── Round 4: Keyword Extraction ─────────────────────────────────────
       setAnalysisPhase('keywords');
-      console.log('[Resume AI] Round 4: Extracting keywords...');
+      console.log('[Resume AI] Round 4: Keywords...');
 
-      const keywordSystem = `You are an ATS expert. Extract the top 15 most important ATS keywords from a job description and check if each appears in a resume. Return ONLY a valid JSON array with no markdown: [{"keyword": "...", "status": "PRESENT"}, {"keyword": "...", "status": "MISSING"}]`;
+      const kwResult = await callGeminiJSON<KeywordTag[]>(
+        // System (~30 words)
+        `ATS expert. Return JSON array of top 15 keywords from the JD, each marked PRESENT or MISSING in the resume: [{keyword,status}].`,
+        `JD: ${jdShort}\n\nRESUME SUMMARY: ${safeResult.summary}\nSKILLS: ${safeResult.skills_reordered.join(', ')}\nKEYWORDS ADDED: ${safeResult.keywords_added.join(', ')}`
+      );
 
-      const keywordPrompt = `JOB DESCRIPTION:
-${jdText}
-
-FINAL RESUME:
-${JSON.stringify(safeResult, null, 2)}
-
-Extract top 15 ATS keywords. Mark each as PRESENT (found in resume) or MISSING (not in resume). Return JSON array only.`;
-
-      const kwResult = await callGeminiJSON<KeywordTag[]>(keywordSystem, keywordPrompt);
       const validKws = Array.isArray(kwResult)
         ? kwResult.filter(k => k.keyword && (k.status === 'PRESENT' || k.status === 'MISSING'))
         : [];
-      
       setKeywords(validKws);
-      console.log('[Resume AI] Keywords:', validKws);
+      console.log('[Resume AI] Round 4 done:', validKws);
 
-      // Set default bullet selections
+      // Default all bullets to AI version
       const initialSelections: Record<string, 'original' | 'ai'> = {};
-      const allIds = [
-        ...(profile.experience || []).map(e => e.id),
-        ...(profile.projects || []).map(p => p.id)
-      ];
-      allIds.forEach(id => { initialSelections[id] = 'ai'; });
+      [...(profile.experience || []).map(e => e.id), ...(profile.projects || []).map(p => p.id)]
+        .forEach(id => { initialSelections[id] = 'ai'; });
       setBulletSelections(initialSelections);
 
     } catch (e: any) {
-      console.error('[Resume AI] Analysis failed:', e);
-      setAnalysisError(e?.message || 'AI analysis failed. Please check your API key and try again.');
+      console.error('[Resume AI] Failed:', e);
+      setAnalysisError(e?.message || 'AI analysis failed. Check your API key and try again.');
     } finally {
       setIsGenerating(false);
       setAnalysisPhase(null);
@@ -287,6 +200,6 @@ Extract top 15 ATS keywords. Mark each as PRESENT (found in resume) or MISSING (
     keywords,
     analysisError,
     bulletSelections, toggleBullet,
-    startAnalysis
+    startAnalysis,
   };
 }

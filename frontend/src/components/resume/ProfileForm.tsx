@@ -9,76 +9,53 @@ interface ProfileFormProps {
 }
 
 const inputClass = `
-  w-full px-3 py-2.5 rounded-lg border border-white/10 bg-white/5 text-white text-sm
-  placeholder:text-white/25 focus:outline-none focus:border-purple-500/60 focus:bg-white/8
+  w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm
+  placeholder:text-gray-400 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/20
   transition-all duration-200
 `.trim();
 
-const cardClass = `
-  p-5 rounded-xl border border-white/10 bg-white/[0.03] space-y-4 relative
-`.trim();
+const cardClass = `p-5 rounded-xl border border-gray-200 bg-white shadow-sm space-y-4 relative`;
 
-const sectionHeadingClass = `
-  text-base font-semibold text-white/90 flex items-center gap-2 mb-4
-`.trim();
+const sectionHeadingClass = `text-sm font-semibold text-gray-700 flex items-center gap-2 mb-4`;
 
 export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onNext }) => {
-  const updatePersonal = (field: keyof ResumeProfile['personal'], value: string) => {
+  const updatePersonal = (field: keyof ResumeProfile['personal'], value: string) =>
     onChange({ ...profile, personal: { ...profile.personal, [field]: value } });
-  };
 
-  const addExperience = () => {
-    onChange({
-      ...profile,
-      experience: [...profile.experience, { id: `exp_${Date.now()}`, company: '', role: '', start: '', end: '', location: '', bullets: [''] }]
-    });
-  };
+  const addExperience = () =>
+    onChange({ ...profile, experience: [...profile.experience, { id: `exp_${Date.now()}`, company: '', role: '', start: '', end: '', location: '', bullets: [''] }] });
 
-  const updateExperience = (id: string, field: string, value: any) => {
-    onChange({
-      ...profile,
-      experience: profile.experience.map(e => e.id === id ? { ...e, [field]: value } : e)
-    });
-  };
+  const updateExperience = (id: string, field: string, value: any) =>
+    onChange({ ...profile, experience: profile.experience.map(e => e.id === id ? { ...e, [field]: value } : e) });
 
-  const removeExperience = (id: string) => {
+  const removeExperience = (id: string) =>
     onChange({ ...profile, experience: profile.experience.filter(e => e.id !== id) });
-  };
 
-  const addProject = () => {
-    onChange({
-      ...profile,
-      projects: [...profile.projects, { id: `proj_${Date.now()}`, name: '', stack: [], link: '', bullets: [''] }]
-    });
-  };
+  const addProject = () =>
+    onChange({ ...profile, projects: [...profile.projects, { id: `proj_${Date.now()}`, name: '', stack: [], link: '', bullets: [''] }] });
 
-  const updateProject = (id: string, field: string, value: any) => {
-    onChange({
-      ...profile,
-      projects: profile.projects.map(p => p.id === id ? { ...p, [field]: value } : p)
-    });
-  };
+  const updateProject = (id: string, field: string, value: any) =>
+    onChange({ ...profile, projects: profile.projects.map(p => p.id === id ? { ...p, [field]: value } : p) });
 
-  const removeProject = (id: string) => {
+  const removeProject = (id: string) =>
     onChange({ ...profile, projects: profile.projects.filter(p => p.id !== id) });
-  };
 
   return (
     <div className="space-y-8 max-w-3xl mx-auto pb-12 animate-in fade-in">
 
-      {/* Paste existing resume */}
+      {/* Paste Resume */}
       <section>
         <h2 className={sectionHeadingClass}>
-          <span className="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center text-purple-400 text-xs">✦</span>
+          <span className="w-4 h-4 rounded bg-violet-100 flex items-center justify-center text-violet-600 text-[10px]">✦</span>
           Paste Existing Resume
-          <span className="ml-1 text-xs font-normal text-white/30 tracking-normal">(Optional)</span>
+          <span className="text-xs font-normal text-gray-400">(Optional)</span>
         </h2>
         <div className={cardClass}>
-          <p className="text-sm text-white/40 mb-3">
-            Paste your existing resume — our AI will use it as context. You can skip the manual fields below.
+          <p className="text-sm text-gray-500 mb-2">
+            Paste your existing resume — our AI will use it as context.
           </p>
           <textarea
-            className={`${inputClass} min-h-[130px]`}
+            className={`${inputClass} min-h-[120px]`}
             placeholder="Paste your full resume text here..."
             value={profile.raw_resume_text || ''}
             onChange={e => onChange({ ...profile, raw_resume_text: e.target.value })}
@@ -89,7 +66,7 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
       {/* Personal Info */}
       <section>
         <h2 className={sectionHeadingClass}>
-          <User className="w-4 h-4 text-purple-400" />
+          <User className="w-4 h-4 text-violet-500" />
           Personal Info
         </h2>
         <div className={cardClass}>
@@ -107,13 +84,13 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
       {/* Experience */}
       <section>
         <div className="flex justify-between items-center mb-4">
-          <h2 className={sectionHeadingClass + ' mb-0'}>
-            <Briefcase className="w-4 h-4 text-purple-400" />
+          <h2 className={`${sectionHeadingClass} mb-0`}>
+            <Briefcase className="w-4 h-4 text-violet-500" />
             Experience
           </h2>
           <button
             onClick={addExperience}
-            className="flex items-center gap-1.5 text-xs font-semibold text-purple-400 hover:text-purple-300 border border-purple-500/30 hover:border-purple-400/50 px-3 py-1.5 rounded-lg transition-all duration-200 bg-purple-500/5 hover:bg-purple-500/10"
+            className="flex items-center gap-1.5 text-xs font-semibold text-violet-600 hover:text-violet-700 border border-violet-200 hover:border-violet-300 px-3 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 transition-all duration-200"
           >
             <Plus className="w-3.5 h-3.5" /> Add
           </button>
@@ -121,10 +98,7 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
         <div className="space-y-4">
           {profile.experience.map(exp => (
             <div key={exp.id} className={cardClass}>
-              <button
-                onClick={() => removeExperience(exp.id)}
-                className="absolute top-4 right-4 text-white/20 hover:text-red-400 transition-colors p-1 rounded"
-              >
+              <button onClick={() => removeExperience(exp.id)} className="absolute top-4 right-4 text-gray-300 hover:text-red-400 transition-colors p-1 rounded">
                 <Trash2 className="w-4 h-4" />
               </button>
               <div className="grid grid-cols-2 gap-3 mr-8">
@@ -134,13 +108,8 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
                 <input className={inputClass} placeholder="End (or Present)" value={exp.end} onChange={e => updateExperience(exp.id, 'end', e.target.value)} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/40 uppercase tracking-wider block mb-1.5">Bullets (one per line)</label>
-                <textarea
-                  className={`${inputClass} min-h-[90px]`}
-                  placeholder="• Led backend migration reducing latency by 40%..."
-                  value={exp.bullets.join('\n')}
-                  onChange={e => updateExperience(exp.id, 'bullets', e.target.value.split('\n'))}
-                />
+                <label className="text-xs font-medium text-gray-500 block mb-1.5">Bullets (one per line)</label>
+                <textarea className={`${inputClass} min-h-[90px]`} placeholder="• Led backend migration reducing latency by 40%..." value={exp.bullets.join('\n')} onChange={e => updateExperience(exp.id, 'bullets', e.target.value.split('\n'))} />
               </div>
             </div>
           ))}
@@ -150,13 +119,13 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
       {/* Projects */}
       <section>
         <div className="flex justify-between items-center mb-4">
-          <h2 className={sectionHeadingClass + ' mb-0'}>
-            <FolderOpen className="w-4 h-4 text-purple-400" />
+          <h2 className={`${sectionHeadingClass} mb-0`}>
+            <FolderOpen className="w-4 h-4 text-violet-500" />
             Projects
           </h2>
           <button
             onClick={addProject}
-            className="flex items-center gap-1.5 text-xs font-semibold text-purple-400 hover:text-purple-300 border border-purple-500/30 hover:border-purple-400/50 px-3 py-1.5 rounded-lg transition-all duration-200 bg-purple-500/5 hover:bg-purple-500/10"
+            className="flex items-center gap-1.5 text-xs font-semibold text-violet-600 hover:text-violet-700 border border-violet-200 hover:border-violet-300 px-3 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 transition-all duration-200"
           >
             <Plus className="w-3.5 h-3.5" /> Add
           </button>
@@ -164,25 +133,17 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
         <div className="space-y-4">
           {profile.projects.map(proj => (
             <div key={proj.id} className={cardClass}>
-              <button
-                onClick={() => removeProject(proj.id)}
-                className="absolute top-4 right-4 text-white/20 hover:text-red-400 transition-colors p-1 rounded"
-              >
+              <button onClick={() => removeProject(proj.id)} className="absolute top-4 right-4 text-gray-300 hover:text-red-400 transition-colors p-1 rounded">
                 <Trash2 className="w-4 h-4" />
               </button>
               <div className="grid grid-cols-2 gap-3 mr-8">
                 <input className={inputClass} placeholder="Project Name" value={proj.name} onChange={e => updateProject(proj.id, 'name', e.target.value)} />
                 <input className={inputClass} placeholder="GitHub / Link" value={proj.link} onChange={e => updateProject(proj.id, 'link', e.target.value)} />
-                <input className={`${inputClass} col-span-2`} placeholder="Tech Stack (comma separated, e.g. React, Node.js, PostgreSQL)" value={proj.stack.join(', ')} onChange={e => updateProject(proj.id, 'stack', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} />
+                <input className={`${inputClass} col-span-2`} placeholder="Tech Stack (comma separated)" value={proj.stack.join(', ')} onChange={e => updateProject(proj.id, 'stack', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/40 uppercase tracking-wider block mb-1.5">Bullets (one per line)</label>
-                <textarea
-                  className={`${inputClass} min-h-[90px]`}
-                  placeholder="• Built and deployed full-stack app handling 10k+ daily users..."
-                  value={proj.bullets.join('\n')}
-                  onChange={e => updateProject(proj.id, 'bullets', e.target.value.split('\n'))}
-                />
+                <label className="text-xs font-medium text-gray-500 block mb-1.5">Bullets (one per line)</label>
+                <textarea className={`${inputClass} min-h-[90px]`} placeholder="• Built full-stack app handling 10k+ daily users..." value={proj.bullets.join('\n')} onChange={e => updateProject(proj.id, 'bullets', e.target.value.split('\n'))} />
               </div>
             </div>
           ))}
@@ -192,7 +153,7 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onChange, onN
       <div className="flex justify-end pt-2">
         <button
           onClick={onNext}
-          className="px-8 py-3 rounded-xl font-semibold text-sm text-white bg-purple-600 hover:bg-purple-500 transition-all duration-200 shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:shadow-[0_0_28px_rgba(168,85,247,0.45)]"
+          className="px-8 py-2.5 rounded-xl font-semibold text-sm text-white bg-violet-600 hover:bg-violet-700 transition-colors shadow-sm"
         >
           Continue to Job Target →
         </button>

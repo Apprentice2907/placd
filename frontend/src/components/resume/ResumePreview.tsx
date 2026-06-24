@@ -252,31 +252,31 @@ export const ResumePreview: React.FC<ResumePreviewProps> = ({
       {/* ── Sidebar (no-print) ── */}
       <div className="w-full lg:w-60 shrink-0 space-y-4 no-print sticky top-8">
         {/* Export */}
-        <div className="p-5 rounded-xl border border-white/10 bg-white/[0.03]">
-          <h3 className="font-semibold text-white text-sm mb-1">Ready to export?</h3>
-          <p className="text-xs text-white/40 mb-4">Toggle bullets using AI or original, then export as PDF.</p>
+        <div className="p-5 rounded-xl border border-gray-200 bg-white shadow-sm">
+          <h3 className="font-semibold text-gray-800 text-sm mb-1">Ready to export?</h3>
+          <p className="text-xs text-gray-500 mb-4">Toggle bullets between AI and original, then export as PDF.</p>
           <button
             onClick={onExport}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-all duration-200 shadow-[0_0_16px_rgba(168,85,247,0.25)]"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 transition-colors shadow-sm"
           >
             <Download className="w-4 h-4" /> Export PDF
           </button>
         </div>
 
         {/* Tips */}
-        <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02]">
-          <p className="text-xs text-white/30 font-semibold uppercase tracking-wider mb-2">Tips</p>
-          <ul className="text-xs text-white/30 space-y-1.5 list-disc pl-4">
-            <li>Toggle each bullet to switch between your original and AI version</li>
-            <li>Green keywords = already present in resume</li>
+        <div className="p-4 rounded-xl border border-gray-100 bg-gray-50">
+          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Tips</p>
+          <ul className="text-xs text-gray-400 space-y-1.5 list-disc pl-4">
+            <li>Toggle each bullet to switch between original and AI version</li>
+            <li>Green keywords = present in resume</li>
             <li>Red keywords = consider adding manually</li>
-            <li>Export prints only the white paper — no UI chrome</li>
+            <li>Export prints only the white paper</li>
           </ul>
         </div>
 
         <button
           onClick={() => window.history.back()}
-          className="w-full flex items-center justify-center gap-1.5 text-xs text-white/30 hover:text-white/50 transition-colors py-2"
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors py-2"
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Back to AI Insights
         </button>
