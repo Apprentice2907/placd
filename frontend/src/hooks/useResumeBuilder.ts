@@ -2,8 +2,8 @@ import { useState, useCallback } from 'react';
 import type { ResumeProfile, KeywordTag, AnalysisPhase } from '../types/resume';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-// gemini-1.5-flash: much higher free-tier RPM limits than 2.0
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+// gemini-2.0-flash: much higher free-tier RPM limits than 2.0
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 async function callGeminiJSON<T>(systemInstruction: string, userMessage: string): Promise<T> {
   const res = await fetch(GEMINI_URL, {
