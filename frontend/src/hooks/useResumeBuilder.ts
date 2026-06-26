@@ -5,22 +5,6 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 // gemini-1.5-flash: much higher free-tier RPM limits than 2.0
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-async function callGemini(systemInstruction: string, userMessage: string): Promise<string> {
-  const res = await fetch(GEMINI_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemInstruction }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
-    }),
-  });
-  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
-  return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-}
-
 async function callGeminiJSON<T>(systemInstruction: string, userMessage: string): Promise<T> {
   const res = await fetch(GEMINI_URL, {
     method: 'POST',
@@ -82,93 +66,55 @@ export function useResumeBuilder() {
     const jdShort = jdText.length > 800 ? jdText.slice(0, 800) + '...' : jdText;
 
     try {
-      // ── Round 1: Generator ──────────────────────────────────────────────
-      setAnalysisPhase('generating');
-      console.log('[Resume AI] Round 1: Generating...');
+      setAnalysisPhase('analyzing');
+      console.log('[Resume AI] Tailoring resume...');
 
-      const round1Result = await callGeminiJSON<{
-        summary: string;
-        rewritten_bullets: { id: string; bullets: string[] }[];
-        skills_reordered: string[];
-        match_score: number;
-      }>(
-        // System (~40 words)
-        `Expert resume writer. Output ATS-optimized resume as JSON: {summary, rewritten_bullets:[{id,bullets}], skills_reordered, match_score}. Max 400 words total. Use exact IDs from profile.`,
-        // User prompt
-        `PROFILE: ${profileSummary}\n\nROLE: ${role} at ${company}\n\nJD: ${jdShort}\n\nReturn JSON only.`
-      );
-      console.log('[Resume AI] Round 1 done');
+      const systemPrompt = `You are an expert resume writer. Tailor the resume to the job description. Be concise, use strong action verbs, and optimize for ATS.
+Output exactly this JSON shape:
+{
+  "summary": "string",
+  "rewritten_bullets": { "role_or_project": ["bullet1"] },
+  "skills_reordered": ["skill1"],
+  "match_score": 85,
+  "keywords": [{"keyword": "string", "status": "PRESENT"|"MISSING"}]
+}`;
 
-      await delay(2000);
-
-      // ── Round 2: Critic ─────────────────────────────────────────────────
-      setAnalysisPhase('critiquing');
-      console.log('[Resume AI] Round 2: Critiquing...');
-
-      const round2Critique = await callGemini(
-        // System (~35 words)
-        `Senior hiring manager, 95% rejection rate. List every resume flaw: weak verbs, missing metrics, vague bullets, missing ATS keywords. Be blunt. Numbered list only.`,
-        `JD: ${jdShort}\n\nRESUME: ${JSON.stringify(round1Result)}\n\nList flaws:`
-      );
-      console.log('[Resume AI] Round 2 done');
-
-      await delay(2000);
-
-      // ── Round 3: Refiner ────────────────────────────────────────────────
-      setAnalysisPhase('refining');
-      console.log('[Resume AI] Round 3: Refining...');
+      const userPrompt = `PROFILE: ${profileSummary}\n\nROLE: ${role} at ${company}\n\nJD: ${jdShort}`;
 
       const finalResult = await callGeminiJSON<{
         summary: string;
-        rewritten_bullets: { id: string; bullets: string[] }[];
+        rewritten_bullets: Record<string, string[]>;
         skills_reordered: string[];
         match_score: number;
-        ats_score_before: number;
-        ats_score_after: number;
-        keywords_added: string[];
-        keywords_missing: string[];
-        recommendations: string[];
-        sections_to_emphasize: string[];
-      }>(
-        // System (~35 words)
-        `Expert resume writer. Fix all critique issues. Output JSON: {summary, rewritten_bullets:[{id,bullets}], skills_reordered, match_score, ats_score_before, ats_score_after, keywords_added, keywords_missing, recommendations, sections_to_emphasize}.`,
-        `DRAFT: ${JSON.stringify(round1Result)}\n\nCRITIQUE: ${round2Critique}\n\nJD: ${jdShort}\n\nReturn improved JSON:`
+        keywords: KeywordTag[];
+      }>(systemPrompt, userPrompt);
+
+      console.log('[Resume AI] Analysis done', finalResult);
+
+      const rewrittenBulletsArray = Object.entries(finalResult.rewritten_bullets || {}).map(
+        ([id, bullets]) => ({ id, bullets })
       );
-      console.log('[Resume AI] Round 3 done');
 
       const safeResult = {
-        summary: finalResult.summary || round1Result.summary || '',
-        rewritten_bullets: finalResult.rewritten_bullets || round1Result.rewritten_bullets || [],
-        skills_reordered: finalResult.skills_reordered || round1Result.skills_reordered || [],
-        match_score: finalResult.match_score || round1Result.match_score || 0,
-        ats_score_before: finalResult.ats_score_before || 0,
-        ats_score_after: finalResult.ats_score_after || finalResult.match_score || 0,
-        keywords_added: finalResult.keywords_added || [],
-        keywords_missing: finalResult.keywords_missing || [],
-        recommendations: finalResult.recommendations || [],
-        sections_to_emphasize: finalResult.sections_to_emphasize || [],
+        summary: finalResult.summary || '',
+        rewritten_bullets: rewrittenBulletsArray,
+        skills_reordered: finalResult.skills_reordered || [],
+        match_score: finalResult.match_score || 0,
+        ats_score_before: 0,
+        ats_score_after: finalResult.match_score || 0,
+        keywords_added: [],
+        keywords_missing: [],
+        recommendations: [],
+        sections_to_emphasize: [],
         placeholders: [],
-        missing_keywords: finalResult.keywords_missing || [],
+        missing_keywords: [],
       };
       setGenerateResult(safeResult);
 
-      await delay(2000);
-
-      // ── Round 4: Keyword Extraction ─────────────────────────────────────
-      setAnalysisPhase('keywords');
-      console.log('[Resume AI] Round 4: Keywords...');
-
-      const kwResult = await callGeminiJSON<KeywordTag[]>(
-        // System (~30 words)
-        `ATS expert. Return JSON array of top 15 keywords from the JD, each marked PRESENT or MISSING in the resume: [{keyword,status}].`,
-        `JD: ${jdShort}\n\nRESUME SUMMARY: ${safeResult.summary}\nSKILLS: ${safeResult.skills_reordered.join(', ')}\nKEYWORDS ADDED: ${safeResult.keywords_added.join(', ')}`
-      );
-
-      const validKws = Array.isArray(kwResult)
-        ? kwResult.filter(k => k.keyword && (k.status === 'PRESENT' || k.status === 'MISSING'))
+      const validKws = Array.isArray(finalResult.keywords)
+        ? finalResult.keywords.filter((k: any) => k.keyword && (k.status === 'PRESENT' || k.status === 'MISSING'))
         : [];
       setKeywords(validKws);
-      console.log('[Resume AI] Round 4 done:', validKws);
 
       // Default all bullets to AI version
       const initialSelections: Record<string, 'original' | 'ai'> = {};

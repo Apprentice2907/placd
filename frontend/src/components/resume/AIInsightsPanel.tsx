@@ -12,74 +12,19 @@ interface AIInsightsPanelProps {
   onNext: () => void;
 }
 
-const phases: { key: AnalysisPhase; label: string; description: string }[] = [
-  { key: 'generating', label: 'Generating Draft',       description: 'Writing an ATS-optimized resume from your profile...' },
-  { key: 'critiquing', label: 'Critiquing Resume',      description: 'Senior hiring manager reviewing every weakness...' },
-  { key: 'refining',   label: 'Refining Final Version', description: 'Fixing every critique to make it exceptional...' },
-  { key: 'keywords',   label: 'Extracting Keywords',    description: 'Auditing ATS keyword coverage...' },
-];
-
-function PhaseProgress({ currentPhase }: { currentPhase: AnalysisPhase }) {
-  const currentIndex = phases.findIndex(p => p.key === currentPhase);
-  const activePhase = phases[currentIndex];
-
+function AnalyzingProgress() {
   return (
-    <div className="max-w-xl mx-auto py-16 flex flex-col items-center gap-8">
+    <div className="max-w-xl mx-auto py-16 flex flex-col items-center gap-6">
       {/* Spinner */}
       <div className="relative w-16 h-16">
         <div className="absolute inset-0 rounded-full border-4 border-violet-100" />
         <div className="absolute inset-0 rounded-full border-4 border-violet-600 border-t-transparent animate-spin" />
       </div>
 
-      {/* Active phase */}
       <div className="text-center">
-        <h3 className="text-lg font-semibold text-gray-800 mb-1">{activePhase?.label}</h3>
-        <p className="text-sm text-gray-500">{activePhase?.description}</p>
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Tailoring your resume to the job...</h3>
+        <p className="text-sm text-gray-500">This usually takes about 10 seconds.</p>
       </div>
-
-      {/* Phase steps */}
-      <div className="w-full space-y-2.5">
-        {phases.map((phase, i) => {
-          const isDone = currentIndex > i;
-          const isCurrent = currentIndex === i;
-          return (
-            <div
-              key={phase.key}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-500 ${
-                isDone    ? 'border-violet-200 bg-violet-50' :
-                isCurrent ? 'border-violet-300 bg-white shadow-sm' :
-                            'border-gray-100 bg-gray-50'
-              }`}
-            >
-              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                isDone    ? 'bg-violet-600 text-white' :
-                isCurrent ? 'border-2 border-violet-500 text-violet-500' :
-                            'border border-gray-300 text-gray-400'
-              }`}>
-                {isDone ? '✓' : i + 1}
-              </div>
-              <span className={`text-sm font-medium ${
-                isDone ? 'text-violet-700' : isCurrent ? 'text-gray-800' : 'text-gray-400'
-              }`}>
-                {phase.label}
-              </span>
-              {isCurrent && (
-                <div className="ml-auto flex gap-1">
-                  {[0, 1, 2].map(d => (
-                    <div
-                      key={d}
-                      className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
-                      style={{ animationDelay: `${d * 0.15}s` }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <p className="text-xs text-gray-400">This usually takes 30–50 seconds</p>
     </div>
   );
 }
@@ -103,7 +48,7 @@ export const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({
 
   // Loading
   if (isGenerating || analysisPhase) {
-    return <PhaseProgress currentPhase={analysisPhase} />;
+    return <AnalyzingProgress />;
   }
 
   if (!generateResult) return null;

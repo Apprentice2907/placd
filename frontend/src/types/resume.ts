@@ -76,4 +76,4 @@ export interface KeywordTag {
   status: 'PRESENT' | 'MISSING';
 }
 
-export type AnalysisPhase = 'generating' | 'critiquing' | 'refining' | 'keywords' | null;
+export type AnalysisPhase = 'analyzing' | null;
