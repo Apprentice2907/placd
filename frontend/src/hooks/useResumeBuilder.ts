@@ -17,8 +17,15 @@ async function callGeminiJSON<T>(systemInstruction: string, userMessage: string)
   });
   if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
   const text = (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  
+  const clean = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
   try {
-    return JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()) as T;
+    return JSON.parse(clean) as T;
   } catch {
     console.error('Gemini JSON parse failed:', text);
     return {} as T;
