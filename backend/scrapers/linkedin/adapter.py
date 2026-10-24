@@ -62,13 +62,14 @@ class LinkedinAdapter(UnifiedAdapter):
             
             for search in LINKEDIN_SEARCHES:
                 run_input = {
-                    "queries": f"{search['keywords']} in {search['location']}",
-                    "publishedAt": "past-24-hours",
-                    "maxItems": 100
+                    "keyword": search["keywords"],
+                    "location": search["location"],
+                    "timeRange": "past-day",
+                    "maxJobs": 100
                 }
                 
-                run = await client.actor("apify/linkedin-jobs-scraper").call(run_input=run_input)
-                async for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+                run = await client.actor("johnvc/linkedin-jobs-api").call(run_input=run_input)
+                async for item in client.dataset(run.default_dataset_id).iterate_items():
                     apply_url = item.get("jobUrl", "")
                     if not is_valid_apply_url(apply_url):
                         continue
@@ -81,7 +82,7 @@ class LinkedinAdapter(UnifiedAdapter):
                         "url": apply_url,
                         "apply_url": apply_url,
                         "source": self.source,
-                        "posted_date": item.get("publishedAt", ""),
+                        "posted_date": item.get("postedDate", ""),
                         "job_type": item.get("employmentType", "full-time"),
                         "source_priority": 1
                     })
