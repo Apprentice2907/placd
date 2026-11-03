@@ -34,6 +34,19 @@ def normalize_apply_url(url: str) -> str:
     
     return normalized
 
+def is_sign_in_page(url: str) -> bool:
+    """
+    Returns True if URL is a login page. Apply links often redirect to one
+    (e.g. passport.amazon.jobs), which says nothing about whether the job is open.
+    """
+    parsed = urlparse(url)
+    subdomain = (parsed.hostname or "").split(".")[0].lower()
+    if subdomain in {'passport', 'login', 'signin', 'auth', 'sso', 'account', 'accounts'}:
+        return True
+
+    segments = {s.lower() for s in parsed.path.split("/") if s}
+    return bool(segments & {'login', 'signin', 'sign-in', 'auth', 'sso'})
+
 def is_job_listing_page(url: str) -> bool:
     """
     Returns True if URL looks like a catch-all jobs listing (not a specific job).
@@ -41,7 +54,10 @@ def is_job_listing_page(url: str) -> bool:
     """
     parsed = urlparse(url)
     path = parsed.path.rstrip("/")
-    
+
+    if is_sign_in_page(url):
+        return False
+
     if not path:
         return True # Just the domain root is usually a listing page
         

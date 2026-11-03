@@ -193,6 +193,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             company_logo_url = COALESCE(EXCLUDED.company_logo_url, jobs.company_logo_url),
             company_domain   = COALESCE(EXCLUDED.company_domain, jobs.company_domain),
             last_verified_at = EXCLUDED.last_verified_at,
+            last_active_at   = NOW(),
             status           = EXCLUDED.status,
             duplicate_of     = COALESCE(EXCLUDED.duplicate_of, jobs.duplicate_of),
             freshness_score  = EXCLUDED.freshness_score,

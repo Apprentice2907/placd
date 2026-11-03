@@ -41,7 +41,6 @@ MAX_JOBS = 20000
 # Job dates can't prove this, because the link checker also updates last_verified_at.
 SCRAPER_RECENT_DAYS = 3
 
-CLOSED_STATUSES = {"expired", "dead"}
 BATCH_SIZE = 500
 
 
@@ -122,6 +121,8 @@ def plan_deletions(
     A job with a future deadline is kept until that deadline, whatever its age.
     A job from a failing scraper is not aged out, because it can't be seen as still open.
     A source with no entry is no longer scraped, so its jobs age out normally.
+    An 'expired' status is not grounds for deletion: it comes from automated link
+    checks that can be wrong, and a later scrape can show the job is still open.
     """
     rows = [dict(r, last_seen=_as_utc(r.get("last_seen"))) for r in rows]
     cutoff = now - timedelta(days=SCRAPER_RECENT_DAYS)
@@ -134,15 +135,13 @@ def plan_deletions(
     def can_age_out(source: Optional[str]) -> bool:
         return scraper_recent and (source in healthy or source not in scrape_health)
 
-    plan = {"closed": [], "deadline_passed": [], "too_old": [], "over_limit": []}
+    plan = {"deadline_passed": [], "too_old": [], "over_limit": []}
     kept = []
     for row in rows:
         tier = retention_tier(row.get("company_name"))
         deadline = row.get("deadline")
         last_seen = row["last_seen"]
-        if row.get("status") in CLOSED_STATUSES:
-            plan["closed"].append(row["id"])
-        elif deadline and deadline < now.date():
+        if deadline and deadline < now.date():
             plan["deadline_passed"].append(row["id"])
         elif (
             can_age_out(row.get("source"))

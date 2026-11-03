@@ -88,10 +88,34 @@ def test_deadlines_override_age():
 
 
 def test_stale_scraper_never_empties_the_site():
-    rows = [job(str(i), days_ago=69) for i in range(50)] + [job("closed", days_ago=69, status="expired")]
+    rows = [job(str(i), days_ago=69) for i in range(50)] + [job("expired", days_ago=69, status="expired")]
     plan, scraper_recent = plan_deletions(rows, NOW, {}, max_jobs=10)
     assert scraper_recent is False
-    assert plan == {"closed": ["closed"], "deadline_passed": [], "too_old": [], "over_limit": []}
+    assert not any(plan.values())
+
+
+def test_expired_status_alone_does_not_delete_a_job():
+    rows = [
+        job("amazon_expired", "Amazon", days_ago=69, status="expired"),
+        job("amazon_expired_6mo", "Amazon", days_ago=180, status="expired"),
+        job("hidden_old", days_ago=69, status="unverified"),
+    ]
+    plan, _ = plan_deletions(rows, NOW, HEALTHY)
+    assert reason_for("amazon_expired", plan) is None
+    assert sorted(plan["too_old"]) == ["amazon_expired_6mo", "hidden_old"]
+
+
+def test_sign_in_redirect_is_not_a_closed_job():
+    from utils.url_classifier import is_job_listing_page, is_sign_in_page
+
+    assert is_sign_in_page("https://passport.amazon.jobs/")
+    assert is_sign_in_page("https://example.com/users/sign-in")
+    assert not is_job_listing_page("https://passport.amazon.jobs/")
+    assert is_job_listing_page("https://apply.careers.microsoft.com/careers")
+    assert is_job_listing_page("https://example.com/")
+    assert not is_sign_in_page("https://example.com/careers")
+
+
 
 
 def test_over_limit_removes_lowest_priority_first():
