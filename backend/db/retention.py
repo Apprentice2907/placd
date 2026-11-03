@@ -25,6 +25,8 @@ from sqlalchemy.pool import NullPool
 
 from db.connection import DATABASE_URL, engine
 from utils.company_trust import TIER_1_COMPANIES, TIER_2_COMPANIES, _normalise_company
+from utils.job_tagger import is_student_eligible
+from utils.scam_check import check_job
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,18 @@ async def ensure_retention_schema(conn) -> None:
             last_success TIMESTAMPTZ
         )
     """))
+    await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scam_flags TEXT[] DEFAULT '{}'"))
+    await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stipend_text TEXT"))
+    await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duration_months INT"))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS job_reports (
+            job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+            reporter_hash TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (job_id, reporter_hash, reason)
+        )
+    """))
 
 
 async def record_scrape_result(source: str, success: bool) -> None:
@@ -199,6 +213,46 @@ async def _report_size(conn, label: str) -> None:
     """))
     row = result.fetchone()
     logger.info(f"[{label}] database={row.db} jobs_table={row.jobs} job_rows={row.job_count}")
+
+
+async def _refresh_safety_labels(engine, dry_run: bool) -> None:
+    """Applies the current scam and student rules to jobs saved before they existed."""
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text("""
+            SELECT id, title, company_name, description, apply_url, job_type,
+                   is_internship, is_student_eligible, scam_flags
+            FROM jobs
+            WHERE is_spam = FALSE
+        """))).fetchall()
+
+    hide, student_off, flag_updates = [], [], []
+    for row in rows:
+        job = dict(row._mapping)
+        high_risk_reason, flags = check_job(job)
+        if high_risk_reason:
+            hide.append({"id": job["id"], "reason": high_risk_reason})
+            continue
+        if flags != (job["scam_flags"] or []):
+            flag_updates.append({"id": job["id"], "flags": flags})
+        if job["is_student_eligible"] and not is_student_eligible(job):
+            student_off.append({"id": job["id"]})
+
+    logger.info(
+        f"Safety labels: {len(hide)} risky jobs to hide, {len(flag_updates)} warnings to update, "
+        f"{len(student_off)} jobs no longer student friendly"
+    )
+    if dry_run:
+        return
+
+    async with engine.begin() as conn:
+        if hide:
+            await conn.execute(
+                text("UPDATE jobs SET is_spam = TRUE, spam_reason = :reason WHERE id = :id"), hide
+            )
+        if flag_updates:
+            await conn.execute(text("UPDATE jobs SET scam_flags = :flags WHERE id = :id"), flag_updates)
+        if student_off:
+            await conn.execute(text("UPDATE jobs SET is_student_eligible = FALSE WHERE id = :id"), student_off)
 
 
 async def _fix_internship_labels(engine, dry_run: bool) -> None:
@@ -305,6 +359,7 @@ async def run_cleanup(dry_run: bool = False, trim_only: bool = False, compact: b
 
         await _trim_details(engine, dry_run)
         await _fix_internship_labels(engine, dry_run)
+        await _refresh_safety_labels(engine, dry_run)
         if not trim_only:
             await _delete_old_jobs(engine, dry_run)
 

@@ -8,6 +8,7 @@ export const Navbar: React.FC = () => {
 
   const navItems = [
     { name: 'Finds Jobs', path: '/' },
+    { name: 'Internships', path: '/internships' },
     { name: 'Company Reviews', path: '/reviews' },
     { name: 'Find Salaries', path: '/salaries' },
     { name: 'Resume Builder', path: '/resume-builder' },

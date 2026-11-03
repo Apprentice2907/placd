@@ -11,6 +11,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, UUID4
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
+from sqlalchemy.exc import DBAPIError
+from utils.scam_check import describe_trust
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
@@ -85,6 +87,11 @@ async def startup_event():
     from utils.startup_check import run_startup_checks
     results = await run_startup_checks()
     logger.info("startup_complete", checks=results)
+
+    from db.connection import engine
+    from db.retention import ensure_retention_schema
+    async with engine.begin() as conn:
+        await ensure_retention_schema(conn)
     
     # Start the liveness background loop for 24/7 standalone operation
     try:
@@ -103,6 +110,11 @@ async def shutdown_event():
 
 
 # --- Schemas ---
+REPORT_REASONS = {"scam", "dead_link"}
+# Enough people must agree before a job is hidden, so one person cannot remove a real job
+SCAM_REPORTS_TO_HIDE = 3
+
+
 class ReportRequest(BaseModel):
     reason: str
 
@@ -326,6 +338,8 @@ async def get_job(request: Request, job_id: str):
             job_dict['last_verified_at'] = job_dict['last_verified_at'].isoformat()
         if 'description_embedding' in job_dict:
             del job_dict['description_embedding']
+        job_dict['trust'] = describe_trust(job_dict)
+        job_dict['stipend_display'] = job_dict.pop('stipend_text', None)
 
         keywords = []
 
@@ -547,14 +561,45 @@ async def semantic_search(request: Request, query: str = Query(...), limit: int 
 @app.post("/api/jobs/{job_id}/report")
 @limiter.limit("10/minute")
 async def report_job(request: Request, job_id: str, payload: ReportRequest):
-    """Report a dead link to queue immediate verification."""
-    logger.info("job_reported", job_id=job_id, reason=payload.reason)
-    if _verify_task:
+    """Record a user report. Enough scam reports hide the job until it is reviewed."""
+    if payload.reason not in REPORT_REASONS:
+        raise HTTPException(status_code=422, detail="Unknown report reason")
+
+    # Hashed so reports can be counted per person without storing IP addresses
+    address = (
+        request.headers.get("cf-connecting-ip")
+        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or get_remote_address(request)
+    )
+    reporter_hash = hashlib.sha256(f"{CRON_SECRET}:{address}".encode()).hexdigest()
+
+    async with AsyncSessionLocal() as session:
         try:
-            _verify_task.apply_async()
-        except Exception:
-            pass
-    return {"message": "Thanks, we will verify this link"}
+            exists = await session.execute(text("SELECT 1 FROM jobs WHERE id = :id"), {"id": job_id})
+        except DBAPIError:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if not exists.first():
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        await session.execute(text("""
+            INSERT INTO job_reports (job_id, reporter_hash, reason)
+            VALUES (:id, :reporter_hash, :reason)
+            ON CONFLICT DO NOTHING
+        """), {"id": job_id, "reporter_hash": reporter_hash, "reason": payload.reason})
+
+        hidden = False
+        if payload.reason == "scam":
+            result = await session.execute(text("""
+                UPDATE jobs SET status = 'under_review'
+                WHERE id = :id AND status = 'active'
+                  AND (SELECT COUNT(*) FROM job_reports
+                       WHERE job_id = :id AND reason = 'scam') >= :limit
+            """), {"id": job_id, "limit": SCAM_REPORTS_TO_HIDE})
+            hidden = result.rowcount > 0
+        await session.commit()
+
+    logger.info("job_reported", job_id=job_id, reason=payload.reason, hidden=hidden)
+    return {"message": "Thanks, we will review this job"}
 
 
 @app.patch("/api/jobs/{job_id}/status")

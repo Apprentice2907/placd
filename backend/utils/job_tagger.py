@@ -262,19 +262,22 @@ def is_internship(job: dict) -> bool:
 # STUDENT ELIGIBILITY TAGGER
 # ─────────────────────────────────────────────────────────────
 
-_STUDENT_TITLE_KEYWORDS = [
-    "intern", "fresher", "trainee", "new grad", "campus", "apprentice", "graduate program"
-]
+_STUDENT_TITLE = re.compile(
+    r"\b(intern(ship)?s?|fresher|trainee|new grad(uate)?|campus|apprentice(ship)?|graduate (program|programme|engineer))\b",
+    re.IGNORECASE,
+)
 
-_STUDENT_DESC_KEYWORDS = [
-    "pre-final year", "penultimate year", "pursuing", "3rd year", "third year",
-    "2025 batch", "2026 batch", "2027 batch", "currently enrolled", "undergraduate",
-    "0-1 year", "0 to 1", "entry level"
-]
+# "Pursuing" and "undergraduate" also appear in senior job descriptions, as do
+# phrases like "0 to 1 products", so only wording aimed at students counts
+_STUDENT_DESCRIPTION = re.compile(
+    r"pre-final year|penultimate year|currently enrolled|\b20\d\d batch\b|\bfreshers?\b|\b0\s?(-|to)\s?1\s+years?\b",
+    re.IGNORECASE,
+)
 
-_STUDENT_EXCLUDE_KEYWORDS = [
-    "senior ", "staff ", "principal ", "director", "vp of", " lead "
-]
+_ALWAYS_SENIOR_TITLE = re.compile(
+    r"\b(senior|sr\.?|staff|principal|director|vp|vice president|head)\b", re.IGNORECASE
+)
+_EXPERIENCED_TITLE = re.compile(r"\b(lead|manager|architect|executive)\b", re.IGNORECASE)
 
 def is_student_eligible(job: dict) -> bool:
     """
@@ -285,19 +288,16 @@ def is_student_eligible(job: dict) -> bool:
     title = (job.get("title") or "").lower()
     desc = (job.get("description") or "").lower()
 
-    if any(ex in title for ex in _STUDENT_EXCLUDE_KEYWORDS):
+    if _ALWAYS_SENIOR_TITLE.search(title):
         return False
 
-    if job_type == 'internship' or job.get("is_internship"):
+    if job_type == 'internship' or job.get("is_internship") or _STUDENT_TITLE.search(title):
         return True
 
-    if any(kw in title for kw in _STUDENT_TITLE_KEYWORDS):
-        return True
+    if _EXPERIENCED_TITLE.search(title):
+        return False
 
-    if any(kw in desc for kw in _STUDENT_DESC_KEYWORDS):
-        return True
-
-    return False
+    return bool(_STUDENT_DESCRIPTION.search(desc))
 
 # ─────────────────────────────────────────────────────────────
 # MASTER TAGGER — call this on every job

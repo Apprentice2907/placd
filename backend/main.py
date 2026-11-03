@@ -165,6 +165,7 @@ async def run_scrape(target_source: str = None):
     safe_add("weworkremotely", "scrapers.weworkremotely.adapter", "WeWorkRemotelyAdapter", [], {})
     safe_add("indeed", "scrapers.indeed.adapter", "IndeedAdapter", [], {})
     safe_add("ycombinator", "scrapers.ycombinator.adapter", "YCombinatorAdapter", [], {})
+    safe_add("cutshort", "scrapers.cutshort.adapter", "CutshortAdapter", [], {})
     
     # Opportunities needs a wrapper
     try:
@@ -187,6 +188,33 @@ async def run_scrape(target_source: str = None):
     
     await print_quality_report()
 
+async def review_reports(restore_id: str = None, reject_id: str = None):
+    """Lists jobs hidden by user reports, or settles one of them."""
+    from db.connection import engine
+    from db.retention import ensure_retention_schema
+    async with engine.begin() as conn:
+        await ensure_retention_schema(conn)
+        if restore_id:
+            await conn.execute(text("UPDATE jobs SET status = 'active' WHERE id = :id AND status = 'under_review'"), {"id": restore_id})
+            await conn.execute(text("DELETE FROM job_reports WHERE job_id = :id"), {"id": restore_id})
+            print(f"Restored {restore_id}")
+            return
+        if reject_id:
+            await conn.execute(text("UPDATE jobs SET is_spam = TRUE, spam_reason = 'confirmed_by_review', status = 'expired' WHERE id = :id"), {"id": reject_id})
+            print(f"Removed {reject_id}")
+            return
+        rows = (await conn.execute(text("""
+            SELECT j.id, j.title, j.company_name, j.apply_url, COUNT(r.job_id) AS reports
+            FROM jobs j LEFT JOIN job_reports r ON r.job_id = j.id AND r.reason = 'scam'
+            WHERE j.status = 'under_review'
+            GROUP BY j.id, j.title, j.company_name, j.apply_url
+            ORDER BY reports DESC
+        """))).fetchall()
+    print(f"{len(rows)} jobs waiting for review")
+    for row in rows:
+        print(f"{row.id} | {row.reports} reports | {row.title} | {row.company_name} | {row.apply_url}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", help="Action to run (e.g. scrape)")
@@ -194,6 +222,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="cleanup: report only, change nothing")
     parser.add_argument("--trim-only", action="store_true", help="cleanup: shrink details, delete nothing")
     parser.add_argument("--compact", action="store_true", help="cleanup: return freed space to Neon")
+    parser.add_argument("--restore", help="review-reports: put a reported job back on the site")
+    parser.add_argument("--reject", help="review-reports: remove a reported job for good")
     args = parser.parse_args()
     
     if args.action == "scrape":
@@ -205,6 +235,10 @@ def main():
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         from db.retention import run_cleanup
         asyncio.run(run_cleanup(args.dry_run, args.trim_only, args.compact))
+    elif args.action == "review-reports":
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        asyncio.run(review_reports(args.restore, args.reject))
 
 if __name__ == "__main__":
     main()

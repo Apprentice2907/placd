@@ -20,6 +20,7 @@ from sqlalchemy import text
 from db.connection import AsyncSessionLocal, engine
 
 from utils.spam_filter import is_spam
+from utils.scam_check import check_job
 from utils.company_trust import calculate_trust_score, get_company_tier, TRUST_SCORE_WEIGHTS
 from utils.job_tagger import tag_job
 from db.retention import minimize_description, parse_deadline
@@ -129,6 +130,14 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             logger.debug(f"Skipped spam job: {job.get('title', '?')} | {reason}")
             continue
         
+        # Runs here because the saved description is trimmed later
+        high_risk_reason, scam_flags = check_job(job)
+        if high_risk_reason:
+            skipped_spam += 1
+            logger.debug(f"Skipped risky job: {job.get('title', '?')} | {high_risk_reason}")
+            continue
+        job["scam_flags"] = scam_flags
+
         # Compute trust score
         trust = calculate_trust_score(job)
         # Bonus for passing spam check
@@ -178,14 +187,16 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             url_hash, last_verified_at, duplicate_of, freshness_score,
             trust_score, is_spam, spam_reason, company_tier,
             is_faang, is_internship, is_hybrid, work_mode, is_student_eligible,
-            company_name, company_logo_url, company_domain, application_close_date
+            company_name, company_logo_url, company_domain, application_close_date,
+            scam_flags, stipend_text, duration_months
         ) VALUES (
             :company_id, :external_id, :title, :description, :apply_url, :source,
             :job_type, :location, :is_remote, :status,
             :url_hash, :last_verified_at, :duplicate_of, :freshness_score,
             :trust_score, :is_spam, :spam_reason, :company_tier,
             :is_faang, :is_internship, :is_hybrid, :work_mode, :is_student_eligible,
-            :company_name, :company_logo_url, :company_domain, :application_close_date
+            :company_name, :company_logo_url, :company_domain, :application_close_date,
+            :scam_flags, :stipend_text, :duration_months
         )
         ON CONFLICT (url_hash) DO UPDATE SET
             company_id       = COALESCE(EXCLUDED.company_id, jobs.company_id),
@@ -194,7 +205,8 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             company_domain   = COALESCE(EXCLUDED.company_domain, jobs.company_domain),
             last_verified_at = EXCLUDED.last_verified_at,
             last_active_at   = NOW(),
-            status           = EXCLUDED.status,
+            -- A job hidden by user reports stays hidden until someone reviews it
+            status           = CASE WHEN jobs.status = 'under_review' THEN jobs.status ELSE EXCLUDED.status END,
             duplicate_of     = COALESCE(EXCLUDED.duplicate_of, jobs.duplicate_of),
             freshness_score  = EXCLUDED.freshness_score,
             trust_score      = GREATEST(EXCLUDED.trust_score, jobs.trust_score),
@@ -208,7 +220,10 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             is_student_eligible = EXCLUDED.is_student_eligible,
             is_remote        = EXCLUDED.is_remote,
             job_type         = EXCLUDED.job_type,
-            application_close_date = COALESCE(EXCLUDED.application_close_date, jobs.application_close_date)
+            application_close_date = COALESCE(EXCLUDED.application_close_date, jobs.application_close_date),
+            scam_flags       = EXCLUDED.scam_flags,
+            stipend_text     = COALESCE(EXCLUDED.stipend_text, jobs.stipend_text),
+            duration_months  = COALESCE(EXCLUDED.duration_months, jobs.duration_months)
         -- Rewriting every job on every scrape bloats the table and its indexes
         WHERE jobs.status <> 'active'
            OR jobs.last_verified_at IS NULL
@@ -285,6 +300,9 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                 "company_logo_url": company_logo_raw or None,
                 "company_domain":   company_domain_raw or None,
                 "application_close_date": parse_deadline(job),
+                "scam_flags":      job.get("scam_flags", []),
+                "stipend_text":    job.get("stipend_text"),
+                "duration_months": job.get("duration_months"),
             })
             row = result.fetchone()
             if row:

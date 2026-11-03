@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Briefcase, Bookmark, User, KanbanSquare } from 'lucide-react';
+import { GraduationCap, Briefcase, Bookmark, User, KanbanSquare } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface MobileNavProps {
@@ -11,7 +11,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ newJobCount }) => {
   const location = useLocation();
 
   const items = [
-    { name: 'Search', path: '/', icon: Search, activePaths: [] as string[] },
+    { name: 'Internships', path: '/internships', icon: GraduationCap, activePaths: ['/internships'] },
     { name: 'Jobs', path: '/', icon: Briefcase, activePaths: ['/', '/jobs'], badge: newJobCount },
     { name: 'Tracker', path: '/applications', icon: KanbanSquare, activePaths: ['/applications'] },
     { name: 'Saved', path: '/?status=shortlisted', icon: Bookmark, activePaths: [] as string[] },

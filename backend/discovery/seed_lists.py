@@ -162,8 +162,23 @@ GREENHOUSE_LARGE = [
     "pinecone", "weaviate", "qdrant", "chroma", "milvus",
 ]
 
+# Official job feeds checked by hand for open roles in India
+INDIA_VERIFIED_BOARDS = [
+    {"name": "Razorpay", "ats_type": "greenhouse", "ats_slug": "razorpaysoftwareprivatelimited"},
+    {"name": "Groww", "ats_type": "greenhouse", "ats_slug": "groww"},
+    {"name": "InMobi", "ats_type": "greenhouse", "ats_slug": "inmobi"},
+    {"name": "Druva", "ats_type": "greenhouse", "ats_slug": "druva"},
+    {"name": "Rubrik", "ats_type": "greenhouse", "ats_slug": "rubrik"},
+    {"name": "Zeta", "ats_type": "lever", "ats_slug": "zeta"},
+    {"name": "FamPay", "ats_type": "lever", "ats_slug": "fampay"},
+    {"name": "Sarvam", "ats_type": "ashby", "ats_slug": "sarvam"},
+    {"name": "Atlan", "ats_type": "ashby", "ats_slug": "atlan"},
+    {"name": "Smallest", "ats_type": "ashby", "ats_slug": "smallest"},
+]
+
 ALL_SEED_LISTS = [
     FAANG_COMPANIES,
+    INDIA_VERIFIED_BOARDS,
     TOP_STARTUPS,
     HFT_FIRMS,
     AI_LABS,

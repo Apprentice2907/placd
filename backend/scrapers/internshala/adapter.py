@@ -1,13 +1,24 @@
 import asyncio
 import random
+import re
 import logging
 import httpx
 from bs4 import BeautifulSoup
 from scrapers.shared.base_adapter import UnifiedAdapter
-from scrapers.shared.utils import clean_description, is_valid_apply_url, extract_salary_from_text, parse_relative_date
+from scrapers.shared.utils import clean_description, is_valid_apply_url, parse_relative_date
 
 log = logging.getLogger(__name__)
 BASE_URL = "https://internshala.com"
+MAX_INTERNSHIP_PAGES = 20
+MAX_JOB_PAGES = 5
+
+
+def parse_duration_months(text):
+    match = re.search(r"(\d+)\s*(month|week)", text or "", re.IGNORECASE)
+    if not match:
+        return None
+    amount = int(match.group(1))
+    return amount if match.group(2).lower() == "month" else max(1, round(amount / 4))
 
 _DEFAULT_HEADERS: dict[str, str] = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -27,18 +38,18 @@ class InternshalaAdapter(UnifiedAdapter):
         async with self.get_client() as client:
             client.headers.update(_DEFAULT_HEADERS)
             
-            # 1. Fetch Internships (up to 50 pages)
+            # 1. Fetch Internships (every listing also costs one detail request)
             internship_url = f"{BASE_URL}/internships"
             internship_tasks = [
                 self._fetch_search_page(client, internship_url, page, True, semaphore)
-                for page in range(1, 51)
+                for page in range(1, MAX_INTERNSHIP_PAGES + 1)
             ]
-            
-            # 2. Fetch Jobs (up to 100 pages)
+
+            # 2. Fetch Jobs
             jobs_url = f"{BASE_URL}/jobs"
             job_tasks = [
                 self._fetch_search_page(client, jobs_url, page, False, semaphore)
-                for page in range(1, 101)
+                for page in range(1, MAX_JOB_PAGES + 1)
             ]
             
             # Run discovery
@@ -84,27 +95,26 @@ class InternshalaAdapter(UnifiedAdapter):
                     
                 for card in cards:
                     url = ""
-                    el = card.select_one(".view_detail_button") or card.select_one(".profile a[href*='/internship/'], .job-internship-name a")
-                    if el and el.get("href"):
-                        href = el["href"]
+                    href = card.get("data-href")
+                    if href:
                         url = href if href.startswith("http") else f"{BASE_URL}{href}"
-                        
+
                     if not url or not is_valid_apply_url(url):
                         continue
-                        
-                    title_el = card.select_one(".profile a, h3.heading_4_5 a, .job-internship-name a")
-                    company_el = card.select_one(".company_name a, h4.heading_6 a, .company-name")
-                    loc_el = card.select_one(".locations a, #location_names a, .location_link")
-                    salary_el = card.select_one(".stipend, .desktop-text .stipend")
-                    
-                    is_wfh = False
-                    if loc_el and ("work from home" in loc_el.get_text().lower() or "remote" in loc_el.get_text().lower()):
-                        is_wfh = True
+
+                    title_el = card.select_one(".job-internship-name a, .job-title-href")
+                    company_el = card.select_one(".company-name")
+                    locations = [a.get_text(strip=True) for a in card.select(".locations a")]
+                    salary_el = card.select_one(".stipend")
+                    details = " ".join(item.get_text(" ", strip=True) for item in card.select(".row-1-item"))
+
+                    location_text = ", ".join(locations)
+                    is_wfh = "work from home" in location_text.lower() or "remote" in location_text.lower()
 
                     jobs.append({
                         "title": title_el.get_text(strip=True) if title_el else "",
                         "company": company_el.get_text(strip=True) if company_el else "",
-                        "location": loc_el.get_text(strip=True) if loc_el else "",
+                        "location": f"{'Remote' if is_wfh else location_text}, India",
                         "description": "", # Will be filled in detail fetch
                         "apply_url": url.split("?")[0],
                         "url": url.split("?")[0],
@@ -123,7 +133,8 @@ class InternshalaAdapter(UnifiedAdapter):
                         "salary_min": None,
                         "salary_max": None,
                         "salary_currency": None,
-                        "salary_raw": salary_el.get_text(strip=True) if salary_el else ""
+                        "stipend_text": salary_el.get_text(" ", strip=True) if salary_el else None,
+                        "duration_months": parse_duration_months(details) if is_internship else None,
                     })
                     
                 await asyncio.sleep(1) # respectful delay
@@ -153,7 +164,6 @@ class InternshalaAdapter(UnifiedAdapter):
                 # Applicants
                 app_el = soup.select_one(".applications_message")
                 if app_el:
-                    import re
                     match = re.search(r'(\d+)', app_el.get_text())
                     if match:
                         job["applicants"] = int(match.group(1))
@@ -165,19 +175,7 @@ class InternshalaAdapter(UnifiedAdapter):
                     if "ago" in text.lower():
                         job["posted_date"] = parse_relative_date(text).isoformat()
                         
-                # Salary extraction
-                sal_min, sal_max, sal_curr = extract_salary_from_text(job["salary"])
-                job["salary_min"] = sal_min
-                job["salary_max"] = sal_max
-                job["salary_currency"] = sal_curr
-                
-                # PPO flag
-                if "ppo" in resp.text.lower() or "pre-placement offer" in resp.text.lower():
-                    job["job_type"] += "_ppo"
-                    
                 # Fix up for rule 4 conformity
-                if "salary_raw" in job:
-                    del job["salary_raw"]
                 if "url" in job:
                     pass # We keep url for now if it's used elsewhere, but not in rule 4
                     

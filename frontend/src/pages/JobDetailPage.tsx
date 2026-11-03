@@ -7,7 +7,7 @@ import { ArrowLeft, MapPin, Briefcase, ExternalLink, AlertTriangle, Building2, C
 
 export const JobDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const [reportSent, setReportSent] = useState(false);
+  const [reportSent, setReportSent] = useState<'scam' | 'dead_link' | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['job', id],
@@ -15,11 +15,11 @@ export const JobDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
-  const handleReport = async () => {
+  const handleReport = async (reason: 'scam' | 'dead_link') => {
     if (!id) return;
     try {
-      await api.jobs.report(id, "Dead link");
-      setReportSent(true);
+      await api.jobs.report(id, reason);
+      setReportSent(reason);
     } catch (e) {
       console.error("Report failed", e);
     }
@@ -137,6 +137,23 @@ export const JobDetailPage: React.FC = () => {
                 About the role
               </h3>
               
+              {job.trust && (job.trust.reasons.length > 0 || job.trust.warnings.length > 0) && (
+                <div className="not-prose mb-8 p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 text-sm space-y-2">
+                  <p className="font-bold">What we checked</p>
+                  {job.trust.reasons.map((reason) => (
+                    <p key={reason} className="flex items-start gap-2 text-green-700 dark:text-green-500">
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> {reason}
+                    </p>
+                  ))}
+                  {job.trust.warnings.map((warning) => (
+                    <p key={warning} className="flex items-start gap-2 text-amber-700 dark:text-amber-500">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> {warning}
+                    </p>
+                  ))}
+                  <p className="text-neutral-500">Never pay money to apply for a job or internship.</p>
+                </div>
+              )}
+
               {/* Sanitized HTML */}
               <div 
                 className="prose prose-neutral dark:prose-invert prose-indigo max-w-none prose-headings:font-bold prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-img:rounded-xl"
@@ -144,18 +161,27 @@ export const JobDetailPage: React.FC = () => {
               />
               
               <div className="mt-10 pt-6 border-t border-neutral-200 dark:border-neutral-800 flex justify-between items-center">
-                <p className="text-sm text-neutral-500">Think this job is expired?</p>
-                <button 
-                  onClick={handleReport}
-                  disabled={reportSent}
-                  className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-500 hover:text-amber-700 dark:hover:text-amber-400 transition-colors disabled:opacity-50"
-                >
-                  {reportSent ? (
-                    <><CheckCircle2 className="w-4 h-4" /> Reported</>
-                  ) : (
-                    <><AlertTriangle className="w-4 h-4" /> Report Dead Link</>
-                  )}
-                </button>
+                <p className="text-sm text-neutral-500">Something wrong with this job?</p>
+                {reportSent ? (
+                  <span className="flex items-center gap-2 text-sm font-medium text-green-600">
+                    <CheckCircle2 className="w-4 h-4" /> Thanks, we will review this job
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={() => handleReport('scam')}
+                      className="flex items-center gap-2 text-sm font-medium text-red-600 hover:text-red-700 transition-colors"
+                    >
+                      <AlertTriangle className="w-4 h-4" /> Report Scam
+                    </button>
+                    <button
+                      onClick={() => handleReport('dead_link')}
+                      className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-500 hover:text-amber-700 dark:hover:text-amber-400 transition-colors"
+                    >
+                      <AlertTriangle className="w-4 h-4" /> Report Dead Link
+                    </button>
+                  </div>
+                )}
               </div>
             </section>
           </div>

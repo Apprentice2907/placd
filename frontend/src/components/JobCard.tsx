@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { api } from '../lib/api';
 import type { Job } from '../lib/api';
 import { MoreHorizontal } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -29,6 +30,8 @@ interface JobCardProps {
 
 export const JobCard: React.FC<JobCardProps> = ({ job }) => {
   const [imgError, setImgError] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reported, setReported] = useState(false);
   
   const [isSaved, setIsSaved] = useState(() => {
     return localStorage.getItem(`saved_job_${job.id}`) === 'true';
@@ -72,8 +75,23 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
     }
   };
 
+  const handleReportScam = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    try {
+      await api.jobs.report(job.id, 'scam');
+      setReported(true);
+    } catch (error) {
+      console.error('Report failed', error);
+    }
+  };
+
+  const durationLabel = job.duration_months
+    ? `${job.duration_months} ${job.duration_months === 1 ? 'Month' : 'Months'}`
+    : '';
+
   return (
-    <div 
+    <div
       className={cn(
         "group relative flex flex-col p-[18px] rounded-[12px] bg-white border-[1.5px] border-[#E8E8E8] transition-all duration-150 hover:border-black hover:shadow-[0_4px_16px_rgba(0,0,0,0.09)]"
       )}
@@ -114,9 +132,26 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
             </p>
           </div>
         </div>
-        <button className="text-[#888888] hover:text-black mt-1">
-          <MoreHorizontal className="w-5 h-5" />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="More options"
+            aria-expanded={menuOpen}
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+            className="text-[#888888] hover:text-black mt-1"
+          >
+            <MoreHorizontal className="w-5 h-5" />
+          </button>
+          {menuOpen && (
+            <button
+              type="button"
+              onClick={handleReportScam}
+              className="absolute right-0 top-7 z-10 whitespace-nowrap px-3 py-2 rounded-[6px] border border-[#E0E0E0] bg-white text-[12px] font-[600] text-[#B91C1C] shadow-sm hover:bg-[#FEF2F2]"
+            >
+              Report scam
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Location */}
@@ -129,7 +164,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
 
       {/* Meta Row */}
       <div className="mt-[12px] flex justify-between items-center text-[13px] font-[600] text-[#333333]">
-        <span className="capitalize">{(job as any).seniority ? (job as any).seniority.replace('-', ' ') : ''}</span>
+        <span className="capitalize">{(job as any).seniority ? (job as any).seniority.replace('-', ' ') : durationLabel}</span>
         <span className="capitalize">{job.is_remote ? 'Remote' : (job.job_type ? job.job_type.replace('-', ' ') : 'Full Time')}</span>
         <span>{job.stipend_display || 'Not Disclosed'}</span>
       </div>
@@ -149,6 +184,27 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
 
       {/* Tags & Student Badge */}
       <div className="mt-[12px] flex flex-wrap gap-[6px]">
+        {job.trust?.verified && (
+          <span
+            title={job.trust.reasons.join('. ')}
+            className="px-[12px] py-[4px] bg-[#DCFCE7] text-[#166534] text-[12px] font-[600] rounded-[9999px]"
+          >
+            ✓ Verified link
+          </span>
+        )}
+        {job.trust?.warnings[0] && (
+          <span
+            title={job.trust.warnings.join('. ')}
+            className="px-[12px] py-[4px] bg-[#FEF3C7] text-[#92400E] text-[12px] rounded-[9999px]"
+          >
+            ⚠ {job.trust.warnings[0]}
+          </span>
+        )}
+        {reported && (
+          <span className="px-[12px] py-[4px] bg-[#FEE2E2] text-[#991B1B] text-[12px] rounded-[9999px]">
+            Reported. Thanks!
+          </span>
+        )}
         {job.is_student_eligible && (
           <span className="px-[12px] py-[4px] bg-[#16A34A] text-white text-[12px] rounded-[9999px]">
             Student Friendly

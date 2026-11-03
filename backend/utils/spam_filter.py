@@ -32,10 +32,9 @@ SPAM_TITLE_PATTERNS: list[re.Pattern] = [
 
 # ── Spam Company Patterns ────────────────────────────────────────────────────
 
+# Names like "Tata Consultancy Services Ltd" and "Lyft Inc" are real employers, so
+# agencies get a warning from scam_check instead of being rejected here
 SPAM_COMPANY_PATTERNS: list[re.Pattern] = [
-    re.compile(r"^[A-Z]{2,5}\s?(pvt|ltd|llp|inc)\.?$", re.IGNORECASE),
-    re.compile(r"(consultancy|consultants|solutions|services)\s?(pvt|ltd)", re.IGNORECASE),
-    re.compile(r"hr\s?(consultancy|solutions|services)", re.IGNORECASE),
     re.compile(r"^(hiring|recruitment|staffing)\s?(agency|firm|company)$", re.IGNORECASE),
 ]
 
@@ -43,19 +42,13 @@ SPAM_COMPANY_PATTERNS: list[re.Pattern] = [
 
 SPAM_DESCRIPTION_SIGNALS: list[str] = [
     "whatsapp us",
-    "call hr",
     "send cv on whatsapp",
-    "contact: +91",
-    "immediate joining",
     "10th pass",
     "12th pass",
     "no target",
     "weekly payout",
     "daily payout",
     "tele caller",
-    "field sales executive",
-    "insurance advisor",
-    "financial advisor",
     "mlm",
     "network marketing",
     "refer and earn",
@@ -101,7 +94,7 @@ def is_spam(job: dict) -> Tuple[bool, str]:
     # ── Description signals ──────────────────────────────────────────────
     desc_lower = description.lower()
     for signal in SPAM_DESCRIPTION_SIGNALS:
-        if signal in desc_lower:
+        if re.search(rf"\b{re.escape(signal)}\b", desc_lower):
             return True, f"spam_description_signal: {signal}"
 
     # ── Quality thresholds ───────────────────────────────────────────────

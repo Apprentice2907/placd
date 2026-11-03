@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Query, Request
+from utils.scam_check import DIRECT_SOURCES, VERIFIED_WITHIN_DAYS, describe_trust
 from typing import Optional
 import structlog
 from search.typesense_sync import typesense_sync
@@ -8,12 +9,20 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v2/jobs")
 
 
+INDIA_LOCATIONS = (
+    r"\m(india|bengaluru|bangalore|hyderabad|pune|mumbai|delhi|gurgaon|gurugram|noida|chennai|"
+    r"kolkata|ahmedabad|jaipur|kochi|indore|chandigarh|coimbatore|thiruvananthapuram)\M"
+)
+
+
 def _map_job_row(r) -> dict:
     """Convert a DB row to a clean job dict, removing heavy/internal fields."""
     d = dict(r._mapping)
     # Remove the heavy embedding vector
     d.pop("description_embedding", None)
     d.pop("search_vector", None)
+    d["trust"] = describe_trust(d)
+    d["stipend_display"] = d.pop("stipend_text", None)
     # Serialize datetimes
     for k, v in d.items():
         if hasattr(v, "isoformat"):
@@ -38,6 +47,10 @@ async def search_jobs_v2(
     filter: Optional[str] = Query(None, description="faang|remote|internship|hybrid"),
     work_mode: Optional[str] = Query(None, description="remote|hybrid|onsite"),
     student_mode: Optional[bool] = None,
+    country: Optional[str] = Query(None, description="india"),
+    verified_only: Optional[bool] = None,
+    paid_only: Optional[bool] = None,
+    max_duration_months: Optional[int] = Query(None, ge=1),
     status: str = "active",
     sort: Optional[str] = Query("newest", description="newest|oldest|relevance"),
     page: int = Query(1, ge=1),
@@ -81,8 +94,26 @@ async def search_jobs_v2(
     from db.connection import AsyncSessionLocal
     from sqlalchemy import text as sa_text
 
-    where_parts = [f"status = '{status}'", "is_spam = FALSE", f"trust_score >= {trust_min}"]
-    params: dict = {"limit": per_page, "offset": (page - 1) * per_page}
+    where_parts = ["status = :status", "is_spam = FALSE", f"trust_score >= {trust_min}"]
+    params: dict = {"limit": per_page, "offset": (page - 1) * per_page, "status": status}
+
+    if country and country.lower() == "india":
+        where_parts.append("location ~* :india_locations")
+        params["india_locations"] = INDIA_LOCATIONS
+
+    if verified_only:
+        where_parts.append(
+            "source = ANY(:direct_sources) AND COALESCE(cardinality(scam_flags), 0) = 0 "
+            f"AND last_verified_at > NOW() - INTERVAL '{VERIFIED_WITHIN_DAYS} days'"
+        )
+        params["direct_sources"] = list(DIRECT_SOURCES)
+
+    if paid_only:
+        where_parts.append("stipend_text ~ '[0-9]'")
+
+    if max_duration_months:
+        where_parts.append("duration_months <= :max_duration_months")
+        params["max_duration_months"] = max_duration_months
 
     # --- Full-text search using GIN index (fast!) ---
     if q and q.strip():
@@ -154,6 +185,8 @@ async def search_jobs_v2(
         order_sql = "ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', :q)) DESC, created_at DESC"
     elif sort == "oldest":
         order_sql = "ORDER BY created_at ASC"
+    elif sort == "recent":
+        order_sql = "ORDER BY created_at DESC"
     else:
         order_sql = "ORDER BY trust_score DESC, created_at DESC"
 
@@ -174,7 +207,8 @@ async def search_jobs_v2(
                        salary_min, salary_max, salary_currency,
                        experience_level, source, status, trust_score,
                        is_faang, is_internship, is_hybrid, work_mode,
-                       freshness_score
+                       freshness_score, last_verified_at, scam_flags,
+                       stipend_text, duration_months
                 FROM jobs WHERE {where_sql}
                 {order_sql}
                 LIMIT :limit OFFSET :offset

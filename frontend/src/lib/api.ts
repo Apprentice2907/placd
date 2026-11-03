@@ -36,6 +36,12 @@ export interface Job {
   last_date?: string | null;
   trust_score?: number;
   company_tier?: number;
+  duration_months?: number | null;
+  trust?: {
+    verified: boolean;
+    reasons: string[];
+    warnings: string[];
+  };
 }
 
 export interface JobSearchResponse {
@@ -76,6 +82,11 @@ export interface SearchFilters {
   visa_sponsorship?: boolean;
   equity?: boolean;
   student_mode?: boolean;
+  filter?: string;
+  country?: string;
+  verified_only?: boolean;
+  paid_only?: boolean;
+  max_duration_months?: number;
 }
 
 export interface CalendarEvent {
@@ -124,7 +135,7 @@ export const api = {
       const { data } = await apiClient.get(`/jobs/${id}`);
       return data;
     },
-    report: async (id: string, reason: string): Promise<{ message: string }> => {
+    report: async (id: string, reason: 'scam' | 'dead_link'): Promise<{ message: string }> => {
       const { data } = await apiClient.post(`/jobs/${id}/report`, { reason });
       return data;
     },
