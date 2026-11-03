@@ -100,6 +100,7 @@ async def save_jobs(jobs: list, source: str):
 
 async def run_scraper_safe(name, func, *args, **kwargs):
     log.info(f"[{name}] Starting...")
+    success = False
     try:
         if inspect.isclass(func):
             # Instantiate adapter without specific company so it uses seed lists
@@ -112,9 +113,16 @@ async def run_scraper_safe(name, func, *args, **kwargs):
         skipped = len(jobs) - inserted
         log.info(f"[{name}] Fetched: {len(jobs)} jobs")
         log.info(f"[{name}] Inserted: {inserted} | Skipped: {skipped} | Failed: 0")
+        success = len(jobs) > 0
     except Exception as e:
         log.error(f"[{name}] FAILED: {e}")
         log.info(f"[{name}] Inserted: 0 | Skipped: 0 | Failed: {len(jobs) if 'jobs' in locals() else 'unknown'}")
+
+    try:
+        from db.retention import record_scrape_result
+        await record_scrape_result(name.lower(), success)
+    except Exception as e:
+        log.error(f"[{name}] Could not record scrape result: {e}")
 
 async def run_scrape(target_source: str = None):
     from db.connection import engine

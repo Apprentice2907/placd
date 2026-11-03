@@ -23,7 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from db.connection import DATABASE_URL
+from db.connection import DATABASE_URL, engine
 from utils.company_trust import TIER_1_COMPANIES, TIER_2_COMPANIES, _normalise_company
 
 logger = logging.getLogger(__name__)
@@ -37,8 +37,8 @@ RETENTION_DAYS = {1: 150, 2: 60, 0: 30}
 # Hard limit on stored jobs. Lowest-priority, longest-unseen jobs go first.
 MAX_JOBS = 20000
 
-# Age-based deletes are skipped unless a scrape has succeeded this recently,
-# so a broken or paused scraper can never empty the site.
+# Age-based deletes only apply to sources whose scraper succeeded this recently.
+# Job dates can't prove this, because the link checker also updates last_verified_at.
 SCRAPER_RECENT_DAYS = 3
 
 CLOSED_STATUSES = {"expired", "dead"}
@@ -108,16 +108,31 @@ def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
-def plan_deletions(rows: Iterable[dict], now: datetime, max_jobs: int = MAX_JOBS) -> tuple[dict, bool]:
+def plan_deletions(
+    rows: Iterable[dict],
+    now: datetime,
+    scrape_health: dict,
+    max_jobs: int = MAX_JOBS,
+) -> tuple[dict, bool]:
     """
     Decide which jobs to delete. Returns ({reason: [ids]}, scraper_recent).
 
-    Each row needs: id, company_name, status, last_seen, deadline.
+    Each row needs: id, source, company_name, status, last_seen, deadline.
+    scrape_health maps each attempted source to its last successful scrape, or None.
     A job with a future deadline is kept until that deadline, whatever its age.
+    A job from a failing scraper is not aged out, because it can't be seen as still open.
+    A source with no entry is no longer scraped, so its jobs age out normally.
     """
     rows = [dict(r, last_seen=_as_utc(r.get("last_seen"))) for r in rows]
-    seen_dates = [r["last_seen"] for r in rows if r["last_seen"]]
-    scraper_recent = bool(seen_dates) and max(seen_dates) >= now - timedelta(days=SCRAPER_RECENT_DAYS)
+    cutoff = now - timedelta(days=SCRAPER_RECENT_DAYS)
+    healthy = {
+        source for source, last_success in scrape_health.items()
+        if last_success and _as_utc(last_success) >= cutoff
+    }
+    scraper_recent = bool(healthy)
+
+    def can_age_out(source: Optional[str]) -> bool:
+        return scraper_recent and (source in healthy or source not in scrape_health)
 
     plan = {"closed": [], "deadline_passed": [], "too_old": [], "over_limit": []}
     kept = []
@@ -130,7 +145,7 @@ def plan_deletions(rows: Iterable[dict], now: datetime, max_jobs: int = MAX_JOBS
         elif deadline and deadline < now.date():
             plan["deadline_passed"].append(row["id"])
         elif (
-            scraper_recent
+            can_age_out(row.get("source"))
             and not deadline
             and (last_seen is None or last_seen < now - timedelta(days=RETENTION_DAYS[tier]))
         ):
@@ -151,6 +166,25 @@ def plan_deletions(rows: Iterable[dict], now: datetime, max_jobs: int = MAX_JOBS
 
 async def ensure_retention_schema(conn) -> None:
     await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS application_close_date DATE"))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS scrape_health (
+            source TEXT PRIMARY KEY,
+            last_attempt TIMESTAMPTZ NOT NULL,
+            last_success TIMESTAMPTZ
+        )
+    """))
+
+
+async def record_scrape_result(source: str, success: bool) -> None:
+    """A failed attempt keeps the source's previous last_success."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO scrape_health (source, last_attempt, last_success)
+            VALUES (:source, NOW(), CASE WHEN CAST(:success AS boolean) THEN NOW() END)
+            ON CONFLICT (source) DO UPDATE SET
+                last_attempt = EXCLUDED.last_attempt,
+                last_success = COALESCE(EXCLUDED.last_success, scrape_health.last_success)
+        """), {"source": source, "success": success})
 
 
 async def _table_exists(conn, name: str) -> bool:
@@ -220,16 +254,26 @@ async def _trim_details(engine, dry_run: bool) -> None:
 async def _delete_old_jobs(engine, dry_run: bool) -> None:
     async with engine.connect() as conn:
         result = await conn.execute(text("""
-            SELECT id, company_name, status, application_close_date AS deadline,
+            SELECT id, source, company_name, status, application_close_date AS deadline,
                    COALESCE(last_verified_at, created_at) AS last_seen
             FROM jobs
         """))
         rows = [dict(r._mapping) for r in result.fetchall()]
 
-    plan, scraper_recent = plan_deletions(rows, datetime.now(timezone.utc))
+        result = await conn.execute(text("SELECT source, last_success FROM scrape_health"))
+        scrape_health = {r.source: r.last_success for r in result.fetchall()}
+
+    now = datetime.now(timezone.utc)
+    plan, scraper_recent = plan_deletions(rows, now, scrape_health)
     logger.info(f"Delete plan: { {reason: len(ids) for reason, ids in plan.items()} } of {len(rows)} jobs")
     if not scraper_recent:
-        logger.warning("No recent scrape found, so age-based deletes were skipped. Run the scrapers first.")
+        logger.warning("No recent successful scrape recorded, so age-based deletes were skipped.")
+    failing = sorted(
+        source for source, last_success in scrape_health.items()
+        if not last_success or _as_utc(last_success) < now - timedelta(days=SCRAPER_RECENT_DAYS)
+    )
+    if failing:
+        logger.warning(f"Not aging out jobs from failing scrapers: {', '.join(failing)}")
     if dry_run:
         return
 
