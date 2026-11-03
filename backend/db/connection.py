@@ -20,7 +20,13 @@ from sqlalchemy.pool import NullPool
 engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    poolclass=NullPool
+    poolclass=NullPool,
+    connect_args={
+        "command_timeout": 10,
+        "server_settings": {
+            "statement_timeout": "8000"
+        }
+    }
 )
 
 # Async Session Factory

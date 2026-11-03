@@ -103,9 +103,9 @@ async def get_jobs_api(
     if remote:
         base_where += " AND jobs.is_remote = true"
     if internship:
-        base_where += " AND jobs.job_type = 'internship'"
+        base_where += " AND LOWER(jobs.job_type) = 'internship'"
     if fulltime:
-        base_where += " AND jobs.job_type = 'fulltime'"
+        base_where += " AND LOWER(jobs.job_type) = 'fulltime'"
 
     if city:
         base_where += " AND jobs.location ILIKE :city_filter"
@@ -125,7 +125,17 @@ async def get_jobs_api(
         total = count_res.scalar() or 0
 
         rows_res = await session.execute(
-            text(f"SELECT jobs.* FROM jobs WHERE {base_where} ORDER BY jobs.created_at DESC LIMIT :limit OFFSET :offset"),
+            text(f"""
+                SELECT jobs.id, jobs.company_id, jobs.external_id, jobs.title,
+                       jobs.company_name, jobs.company_logo_url, jobs.company_domain,
+                       jobs.location, jobs.job_type, jobs.is_remote, jobs.is_student_eligible,
+                       jobs.apply_url, jobs.created_at, jobs.tags, jobs.categories,
+                       jobs.salary_min, jobs.salary_max, jobs.salary_currency,
+                       jobs.experience_level, jobs.source, jobs.status, jobs.trust_score,
+                       jobs.is_faang, jobs.is_internship, jobs.is_hybrid, jobs.work_mode,
+                       jobs.freshness_score, LEFT(jobs.description, 200) AS description_preview
+                FROM jobs WHERE {base_where} ORDER BY jobs.created_at DESC LIMIT :limit OFFSET :offset
+            """),
             params,
         )
         rows = rows_res.fetchall()
@@ -155,7 +165,7 @@ async def get_categories_api() -> dict:
             "fullstack": "title ILIKE '%fullstack%' OR title ILIKE '%full-stack%' OR title ILIKE '%full stack%'",
             "data_science": "title ILIKE '%data%' OR title ILIKE '%analytics%'",
             "remote": "is_remote = true",
-            "internship": "job_type = 'internship'",
+            "internship": "LOWER(job_type) = 'internship'",
         }
 
         counts = {}

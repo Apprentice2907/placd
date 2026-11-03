@@ -7,7 +7,7 @@ services:
     autoDeploy: true
     rootDir: backend
     dockerfilePath: Dockerfile
-    healthCheckPath: /api/stats/quick
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: "8000"

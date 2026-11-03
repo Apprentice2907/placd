@@ -29,7 +29,7 @@ class LeverAdapter(UnifiedAdapter):
                         
         log.info(f"Discovered {len(boards)} Lever boards. Beginning extraction...")
         
-        semaphore = asyncio.Semaphore(50)
+        semaphore = asyncio.Semaphore(100)
         
         async def fetch_board(board):
             slug = board.get("board_token")
@@ -103,9 +103,10 @@ class LeverAdapter(UnifiedAdapter):
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         for res in results:
-            if isinstance(res, list):
-                all_jobs.extend(res)
-                
+                if isinstance(res, list):
+                    all_jobs.extend(res)
+                    
+        log.info(f"[Lever] Fetched {len(all_jobs)} jobs total from all boards")
         return all_jobs
 
 if __name__ == "__main__":

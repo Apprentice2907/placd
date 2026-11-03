@@ -21,6 +21,7 @@ export interface Job {
   is_remote?: boolean | number;
   is_student_eligible?: boolean;
   description?: string | null;
+  description_preview?: string | null;
   apply_url: string;
   created_at?: string;
   posted_at?: string;

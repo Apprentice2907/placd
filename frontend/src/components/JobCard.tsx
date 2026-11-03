@@ -129,7 +129,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
 
       {/* Meta Row */}
       <div className="mt-[12px] flex justify-between items-center text-[13px] font-[600] text-[#333333]">
-        <span className="capitalize">{(job as any).seniority ? (job as any).seniority.replace('-', ' ') : 'Mid Level'}</span>
+        <span className="capitalize">{(job as any).seniority ? (job as any).seniority.replace('-', ' ') : ''}</span>
         <span className="capitalize">{job.is_remote ? 'Remote' : (job.job_type ? job.job_type.replace('-', ' ') : 'Full Time')}</span>
         <span>{job.stipend_display || 'Not Disclosed'}</span>
       </div>
@@ -144,7 +144,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
           overflow: 'hidden'
         }}
       >
-        {job.description || "In this position, you will work closely with cross-functional peers to make offers, bundles, and messaging efficient and seamless. You will also participate in the design process to create beautiful and functional user interfaces."}
+        {job.description || job.description_preview}
       </div>
 
       {/* Tags & Student Badge */}

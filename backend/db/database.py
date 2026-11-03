@@ -18,10 +18,11 @@ from typing import Optional
 from sqlalchemy import text
 
 from db.connection import AsyncSessionLocal, engine
-from utils.minhash_lsh import deduplicator
+
 from utils.spam_filter import is_spam
 from utils.company_trust import calculate_trust_score, get_company_tier, TRUST_SCORE_WEIGHTS
 from utils.job_tagger import tag_job
+from db.retention import minimize_description, parse_deadline
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,8 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
 
         # Step 3: Tag for filter tabs (FAANG / work_mode / internship)
         tag_job(job)
+        if job.get("is_internship"):
+            job["job_type"] = "Internship"
 
         quality_jobs.append(job)
 
@@ -148,6 +151,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
     dict_jobs = quality_jobs
     
     # 1. Fuzzy Deduplication
+    from utils.minhash_lsh import deduplicator
     unique_jobs = await deduplicator.bulk_deduplicate(dict_jobs)
     filtered_count = len(dict_jobs) - len(unique_jobs)
     
@@ -174,14 +178,14 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             url_hash, last_verified_at, duplicate_of, freshness_score,
             trust_score, is_spam, spam_reason, company_tier,
             is_faang, is_internship, is_hybrid, work_mode, is_student_eligible,
-            company_name, company_logo_url, company_domain
+            company_name, company_logo_url, company_domain, application_close_date
         ) VALUES (
             :company_id, :external_id, :title, :description, :apply_url, :source,
             :job_type, :location, :is_remote, :status,
             :url_hash, :last_verified_at, :duplicate_of, :freshness_score,
             :trust_score, :is_spam, :spam_reason, :company_tier,
             :is_faang, :is_internship, :is_hybrid, :work_mode, :is_student_eligible,
-            :company_name, :company_logo_url, :company_domain
+            :company_name, :company_logo_url, :company_domain, :application_close_date
         )
         ON CONFLICT (url_hash) DO UPDATE SET
             company_id       = COALESCE(EXCLUDED.company_id, jobs.company_id),
@@ -201,7 +205,13 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             is_hybrid        = EXCLUDED.is_hybrid,
             work_mode        = EXCLUDED.work_mode,
             is_student_eligible = EXCLUDED.is_student_eligible,
-            is_remote        = EXCLUDED.is_remote
+            is_remote        = EXCLUDED.is_remote,
+            job_type         = EXCLUDED.job_type,
+            application_close_date = COALESCE(EXCLUDED.application_close_date, jobs.application_close_date)
+        -- Rewriting every job on every scrape bloats the table and its indexes
+        WHERE jobs.status <> 'active'
+           OR jobs.last_verified_at IS NULL
+           OR jobs.last_verified_at < NOW() - INTERVAL '3 days'
         RETURNING id, (xmax = 0) AS inserted
     """)
 
@@ -249,7 +259,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                 "company_id":      resolved_company_id,
                 "external_id":     job.get("external_id", ""),
                 "title":           job.get("title", "Unknown"),
-                "description":     job.get("description", ""),
+                "description":     minimize_description(job.get("description", "")),
                 "apply_url":       url,
                 "source":          job_source,
                 "job_type":        job.get("job_type", "full-time"),
@@ -273,6 +283,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                 "company_name":     company_name_raw or None,
                 "company_logo_url": company_logo_raw or None,
                 "company_domain":   company_domain_raw or None,
+                "application_close_date": parse_deadline(job),
             })
             row = result.fetchone()
             if row:
@@ -323,7 +334,15 @@ async def _async_search_jobs(query: str, page: int = 1, limit: int = 50) -> dict
 
         rows_res = await session.execute(
             text("""
-                SELECT * FROM jobs
+                SELECT id, company_id, external_id, title,
+                       company_name, company_logo_url, company_domain,
+                       location, job_type, is_remote, is_student_eligible,
+                       apply_url, created_at, tags, categories,
+                       salary_min, salary_max, salary_currency,
+                       experience_level, source, status, trust_score,
+                       is_faang, is_internship, is_hybrid, work_mode,
+                       freshness_score, LEFT(description, 200) AS description_preview
+                FROM jobs
                 WHERE to_tsvector('english', COALESCE(title, '') || ' ' || COALESCE(description, ''))
                       @@ websearch_to_tsquery('english', :q)
                   AND status = 'active'
@@ -363,9 +382,9 @@ async def _async_get_all_jobs(
 
     if job_type:
         if job_type == "internship":
-            where_parts.append("job_type = 'internship'")
+            where_parts.append("LOWER(job_type) = 'internship'")
         elif job_type == "fulltime":
-            where_parts.append("job_type = 'fulltime'")
+            where_parts.append("LOWER(job_type) = 'fulltime'")
         elif job_type == "remote":
             where_parts.append("is_remote = true")
         else:
@@ -390,7 +409,17 @@ async def _async_get_all_jobs(
         params["limit"] = limit
         params["offset"] = offset
         rows_res = await session.execute(
-            text(f"SELECT * FROM jobs WHERE {where_sql} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"),
+            text(f"""
+                SELECT id, company_id, external_id, title,
+                       company_name, company_logo_url, company_domain,
+                       location, job_type, is_remote, is_student_eligible,
+                       apply_url, created_at, tags, categories,
+                       salary_min, salary_max, salary_currency,
+                       experience_level, source, status, trust_score,
+                       is_faang, is_internship, is_hybrid, work_mode,
+                       freshness_score, LEFT(description, 200) AS description_preview
+                FROM jobs WHERE {where_sql} ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+            """),
             params,
         )
         rows = rows_res.fetchall()
@@ -429,8 +458,8 @@ async def _async_get_job_stats() -> dict:
         res = await session.execute(text("""
             SELECT
                 COUNT(*)                                             AS total,
-                SUM(CASE WHEN job_type = 'internship' THEN 1 ELSE 0 END) AS internships,
-                SUM(CASE WHEN job_type = 'fulltime'   THEN 1 ELSE 0 END) AS fulltime,
+                SUM(CASE WHEN LOWER(job_type) = 'internship' THEN 1 ELSE 0 END) AS internships,
+                SUM(CASE WHEN LOWER(job_type) = 'fulltime'   THEN 1 ELSE 0 END) AS fulltime,
                 SUM(CASE WHEN is_remote = true         THEN 1 ELSE 0 END) AS remote
             FROM jobs
             WHERE status = 'active'

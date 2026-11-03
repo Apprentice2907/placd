@@ -109,11 +109,19 @@ async def run_scraper_safe(name, func, *args, **kwargs):
             jobs = await func(*args, **kwargs)
             
         inserted = await save_jobs(jobs, name.lower())
-        log.info(f"[{name}] Fetched {len(jobs)} jobs (Inserted {inserted})")
+        skipped = len(jobs) - inserted
+        log.info(f"[{name}] Fetched: {len(jobs)} jobs")
+        log.info(f"[{name}] Inserted: {inserted} | Skipped: {skipped} | Failed: 0")
     except Exception as e:
-        log.info(f"[{name}] FAILED: {e}")
+        log.error(f"[{name}] FAILED: {e}")
+        log.info(f"[{name}] Inserted: 0 | Skipped: 0 | Failed: {len(jobs) if 'jobs' in locals() else 'unknown'}")
 
 async def run_scrape(target_source: str = None):
+    from db.connection import engine
+    from db.retention import ensure_retention_schema
+    async with engine.begin() as conn:
+        await ensure_retention_schema(conn)
+
     scrapers = {}
     
     def safe_add(name, mod_path, obj_name, args, kwargs):
@@ -147,6 +155,8 @@ async def run_scrape(target_source: str = None):
     
     safe_add("remoteok", "scrapers.remoteok.adapter", "RemoteOkAdapter", [], {})
     safe_add("weworkremotely", "scrapers.weworkremotely.adapter", "WeWorkRemotelyAdapter", [], {})
+    safe_add("indeed", "scrapers.indeed.adapter", "IndeedAdapter", [], {})
+    safe_add("ycombinator", "scrapers.ycombinator.adapter", "YCombinatorAdapter", [], {})
     
     # Opportunities needs a wrapper
     try:
@@ -173,12 +183,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", help="Action to run (e.g. scrape)")
     parser.add_argument("--source", help="Run specific scraper")
+    parser.add_argument("--dry-run", action="store_true", help="cleanup: report only, change nothing")
+    parser.add_argument("--trim-only", action="store_true", help="cleanup: shrink details, delete nothing")
+    parser.add_argument("--compact", action="store_true", help="cleanup: return freed space to Neon")
     args = parser.parse_args()
     
     if args.action == "scrape":
         if sys.platform == "win32":
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(run_scrape(args.source))
+    elif args.action == "cleanup":
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        from db.retention import run_cleanup
+        asyncio.run(run_cleanup(args.dry_run, args.trim_only, args.compact))
 
 if __name__ == "__main__":
     main()

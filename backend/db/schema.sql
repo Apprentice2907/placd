@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     content_hash TEXT,
     duplicate_of TEXT,
     application_open_date DATE,
+    application_close_date DATE,
     hiring_cycle TEXT,
     enriched_at TIMESTAMPTZ,
     enrichment_cost_usd NUMERIC(10, 4) DEFAULT 0.0,

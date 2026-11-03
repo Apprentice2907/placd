@@ -64,7 +64,7 @@ class LinkedinAdapter(UnifiedAdapter):
                 run_input = {
                     "queries": f"{search['keywords']} in {search['location']}",
                     "publishedAt": "past-24-hours",
-                    "maxItems": 100
+                    "maxItems": 500
                 }
                 
                 run = await client.actor("apify/linkedin-jobs-scraper").call(run_input=run_input)
@@ -102,7 +102,7 @@ class LinkedinAdapter(UnifiedAdapter):
                         site_name=["linkedin"],
                         search_term=search["keywords"],
                         location=search["location"],
-                        results_wanted=100,
+                        results_wanted=500,
                         hours_old=48,
                         linkedin_fetch_description=True,
                         verbose=0,
@@ -139,7 +139,7 @@ class LinkedinAdapter(UnifiedAdapter):
                 keywords = search["keywords"]
                 location = search["location"]
                 
-                for offset in range(0, 100, 25): # Paginate 0, 25, 50, 75
+                for offset in range(0, 500, 25): # Paginate up to 500
                     url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keywords}&location={location}&start={offset}"
                     try:
                         resp = await self._fetch_with_retry(client, url)

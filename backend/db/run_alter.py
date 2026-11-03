@@ -1,8 +1,13 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import asyncio
 import asyncpg
 
 async def main():
-    conn = await asyncpg.connect("postgresql://neondb_owner:npg_Ki9wP2nSAkzs@ep-orange-cake-at8squfa.c-9.us-east-1.aws.neon.tech/neondb")
+    conn = await asyncpg.connect(os.environ["DATABASE_URL"].replace("+asyncpg", ""))
     with open("db/alter.sql", "r") as f:
         sql = f.read()
     await conn.execute(sql)

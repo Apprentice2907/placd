@@ -2,10 +2,15 @@
 Migration: Add GIN search_vector column + company_name/logo columns to jobs table.
 Run once against Neon to get immediate FTS performance improvement.
 """
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import asyncio
 import asyncpg
 
-NEON_URL = "postgresql://neondb_owner:npg_Ki9wP2nSAkzs@ep-orange-cake-at8squfa.c-9.us-east-1.aws.neon.tech/neondb"
+NEON_URL = os.environ["DATABASE_URL"].replace("+asyncpg", "")
 
 MIGRATION_SQL = [
     # 1. Add company_name and logo columns so we don't need joins for every card

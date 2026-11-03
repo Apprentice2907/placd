@@ -10,6 +10,14 @@ on:
         description: 'Specific scraper to run (leave blank for all)'
         required: false
         default: ''
+      compact:
+        description: 'Give freed space back to Neon (locks the jobs table briefly)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   scrape:
@@ -33,6 +41,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Shrink stored job details
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TYPESENSE_ENABLED: 'false'
+        run: python main.py cleanup --trim-only ${{ github.event.inputs.compact == 'true' && '--compact' || '' }}
+
       - name: Run scrapers
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -48,6 +62,20 @@ jobs:
             echo "Running all scrapers..."
             python main.py scrape
           fi
+
+      # Runs after scraping so jobs that are still listed count as recently seen
+      - name: Delete old jobs
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TYPESENSE_ENABLED: 'false'
+        run: python main.py cleanup
+
+      # GitHub disables scheduled workflows after 60 days without repo activity
+      - name: Keep schedule enabled
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable scraper.yml --repo ${{ github.repository }}
 
       - name: Report status
         if: always()

@@ -33,7 +33,7 @@ class GreenhouseAdapter(UnifiedAdapter):
             log.info(f"Discovered {len(boards)} Greenhouse boards. Beginning extraction...")
             
             # 2. Process boards concurrently with Semaphore
-            semaphore = asyncio.Semaphore(50)
+            semaphore = asyncio.Semaphore(100)
             
             async def fetch_board(board):
                 slug = board.get("board_token") or board.get("id")
@@ -66,6 +66,10 @@ class GreenhouseAdapter(UnifiedAdapter):
                             offices = item.get("offices", [])
                             office = offices[0].get("name", "") if offices else item.get("location", {}).get("name", "")
                             
+                            # Clean up known bad data injected by some boards (e.g. Robinhood)
+                            if "[ProspectLand]" in office:
+                                office = office.replace("[ProspectLand]", "").strip()
+                                
                             job_title = item.get("title", "")
                             job_url = item.get("absolute_url", "")
                             updated_at = item.get("updated_at", "")
@@ -99,8 +103,7 @@ class GreenhouseAdapter(UnifiedAdapter):
                                 "salary_currency": None,
                             })
                     except Exception as e:
-                        # Log but don't fail the whole run
-                        log.debug(f"Failed to fetch jobs for board {slug}: {e}")
+                        log.error(f"[Greenhouse] Board {slug} failed: {e}")
                         
                 return jobs
 
@@ -111,7 +114,8 @@ class GreenhouseAdapter(UnifiedAdapter):
                 if isinstance(res, list):
                     all_jobs.extend(res)
                     
-        return all_jobs
+            log.info(f"[Greenhouse] Fetched {len(all_jobs)} jobs total from all boards")
+            return all_jobs
 
 if __name__ == "__main__":
     adapter = GreenhouseAdapter({"name": "Stripe", "board_token": "stripe"})

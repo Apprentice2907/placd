@@ -53,6 +53,19 @@ app.add_middleware(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+import os, psutil
+
+@app.middleware("http")
+async def log_memory(request: Request, call_next):
+    process = psutil.Process(os.getpid())
+    mem_before = process.memory_info().rss / 1024 / 1024
+    response = await call_next(request)
+    mem_after = process.memory_info().rss / 1024 / 1024
+    delta = mem_after - mem_before
+    if delta > 10:  # only log if >10MB increase
+        print(f"[MEM] {request.url.path} +{delta:.1f}MB (total: {mem_after:.1f}MB)")
+    return response
+
 
 from api.routers import search
 from api.routers import alerts
