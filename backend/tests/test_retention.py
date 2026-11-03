@@ -132,6 +132,29 @@ def test_over_limit_removes_lowest_priority_first():
     assert plan["over_limit"] == ["other_old"]
 
 
+def test_over_limit_removes_hidden_jobs_before_visible_ones():
+    rows = [
+        job("amazon_expired", "Amazon", days_ago=1, status="expired"),
+        job("google_unverified", "Google", days_ago=1, status="unverified"),
+        job("small_visible", days_ago=5),
+        job("canva_visible", "Canva", days_ago=5),
+    ]
+    plan, _ = plan_deletions(rows, NOW, HEALTHY, max_jobs=2)
+    assert sorted(plan["over_limit"]) == ["amazon_expired", "google_unverified"]
+
+
+def test_over_limit_prefers_internships_and_india_over_other_jobs():
+    rows = [
+        dict(job("intern", days_ago=9), is_internship=True, location="London"),
+        dict(job("india", days_ago=9), location="Pune, India"),
+        dict(job("canva", "Canva", days_ago=1), location="Sydney"),
+        dict(job("other", days_ago=1), location="Berlin"),
+        dict(job("google", "Google", days_ago=9), location="Zurich"),
+    ]
+    plan, _ = plan_deletions(rows, NOW, HEALTHY, max_jobs=3)
+    assert sorted(plan["over_limit"]) == ["canva", "other"]
+
+
 def test_link_checks_alone_do_not_count_as_a_scrape():
     rows = [job("checked_today", days_ago=0), job("old", days_ago=69)]
     plan, scraper_recent = plan_deletions(rows, NOW, {"greenhouse": NOW - timedelta(days=30)})

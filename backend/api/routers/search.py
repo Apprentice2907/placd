@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Query, Request
+from utils.job_tagger import INDIA_PLACES
 from utils.scam_check import DIRECT_SOURCES, VERIFIED_WITHIN_DAYS, describe_trust
 from typing import Optional
 import structlog
@@ -9,10 +10,7 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v2/jobs")
 
 
-INDIA_LOCATIONS = (
-    r"\m(india|bengaluru|bangalore|hyderabad|pune|mumbai|delhi|gurgaon|gurugram|noida|chennai|"
-    r"kolkata|ahmedabad|jaipur|kochi|indore|chandigarh|coimbatore|thiruvananthapuram)\M"
-)
+INDIA_LOCATIONS = rf"\m({'|'.join(INDIA_PLACES)})\M"
 
 
 def _map_job_row(r) -> dict:

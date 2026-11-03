@@ -25,7 +25,7 @@ from sqlalchemy.pool import NullPool
 
 from db.connection import DATABASE_URL, engine
 from utils.company_trust import TIER_1_COMPANIES, TIER_2_COMPANIES, _normalise_company
-from utils.job_tagger import is_student_eligible
+from utils.job_tagger import INDIA_PLACES, is_student_eligible
 from utils.scam_check import check_job
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,9 @@ MAX_DESCRIPTION_CHARS = 300
 # Days a job is kept after the scraper last saw it, by company tier.
 RETENTION_DAYS = {1: 150, 2: 60, 0: 30}
 
-# Hard limit on stored jobs. Lowest-priority, longest-unseen jobs go first.
+_INDIA_LOCATION = re.compile(rf"\b({'|'.join(INDIA_PLACES)})\b")
+
+# Hard limit on stored jobs. Hidden jobs go first, then lowest-priority, longest-unseen ones.
 MAX_JOBS = 20000
 
 # Age-based deletes only apply to sources whose scraper succeeded this recently.
@@ -109,6 +111,18 @@ def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
+def _keep_rank(tier: int, row: dict) -> int:
+    """Lower is kept longer. Jobs people can see always outrank hidden ones."""
+    if row.get("status") != "active":
+        return {1: 4, 2: 5, 0: 6}[tier]
+    if tier == 1:
+        return 0
+    location = (row.get("location") or "").lower()
+    if row.get("is_internship") or _INDIA_LOCATION.search(location):
+        return 1
+    return 2 if tier == 2 else 3
+
+
 def plan_deletions(
     rows: Iterable[dict],
     now: datetime,
@@ -155,11 +169,10 @@ def plan_deletions(
             kept.append((tier, row))
 
     if scraper_recent and len(kept) > max_jobs:
-        tier_rank = {1: 0, 2: 1, 0: 2}
         oldest = datetime.min.replace(tzinfo=timezone.utc)
         # Newest first, then a stable sort by priority: best jobs stay at the front
         kept.sort(key=lambda item: item[1]["last_seen"] or oldest, reverse=True)
-        kept.sort(key=lambda item: tier_rank[item[0]])
+        kept.sort(key=lambda item: _keep_rank(item[0], item[1]))
         plan["over_limit"] = [row["id"] for _, row in kept[max_jobs:]]
 
     return plan, scraper_recent
@@ -307,7 +320,8 @@ async def _trim_details(engine, dry_run: bool) -> None:
 async def _delete_old_jobs(engine, dry_run: bool) -> None:
     async with engine.connect() as conn:
         result = await conn.execute(text("""
-            SELECT id, source, company_name, status, application_close_date AS deadline,
+            SELECT id, source, company_name, status, is_internship, location,
+                   application_close_date AS deadline,
                    COALESCE(last_verified_at, created_at) AS last_seen
             FROM jobs
         """))

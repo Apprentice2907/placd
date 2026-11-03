@@ -262,6 +262,12 @@ def is_internship(job: dict) -> bool:
 # STUDENT ELIGIBILITY TAGGER
 # ─────────────────────────────────────────────────────────────
 
+INDIA_PLACES = (
+    "india", "bengaluru", "bangalore", "hyderabad", "pune", "mumbai", "delhi", "gurgaon", "gurugram",
+    "noida", "chennai", "kolkata", "ahmedabad", "jaipur", "kochi", "indore", "chandigarh",
+    "coimbatore", "thiruvananthapuram",
+)
+
 _STUDENT_TITLE = re.compile(
     r"\b(intern(ship)?s?|fresher|trainee|new grad(uate)?|campus|apprentice(ship)?|graduate (program|programme|engineer))\b",
     re.IGNORECASE,
