@@ -269,6 +269,25 @@ async def _refresh_safety_labels(engine, dry_run: bool) -> None:
 
 
 async def _fix_internship_labels(engine, dry_run: bool) -> None:
+    # Jobs like "Internal Audit Manager" were once labelled internships
+    wrongly_labelled = """
+        FROM jobs
+        WHERE is_internship = TRUE
+          AND source <> 'internshala'
+          AND title ~* '(internal|international)'
+          AND title !~* '\\m(intern(ship)?s?|trainee|apprentice(ship)?)\\M'
+    """
+    async with engine.begin() as conn:
+        if dry_run:
+            result = await conn.execute(text("SELECT COUNT(*)" + wrongly_labelled))
+            logger.info(f"Wrong internship labels to remove: {result.scalar()}")
+        else:
+            result = await conn.execute(text(
+                "UPDATE jobs SET is_internship = FALSE, job_type = 'FullTime', is_student_eligible = FALSE "
+                "WHERE id IN (SELECT id" + wrongly_labelled + ")"
+            ))
+            logger.info(f"Wrong internship labels removed: {result.rowcount}")
+
     # Word boundaries in the regex, so "Internal Auditor" does not match
     match = """
         FROM jobs

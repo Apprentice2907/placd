@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from scrapers.internshala.adapter import parse_duration_months
-from utils.job_tagger import is_student_eligible
+from utils.job_tagger import is_internship, is_student_eligible
 from utils.scam_check import check_job, describe_trust
 from utils.spam_filter import is_spam
 
@@ -78,6 +78,20 @@ def test_real_companies_are_not_treated_as_spam():
 def test_spam_signals_match_whole_words():
     assert is_spam(job(LONG_TEXT + " We use xmlmapper daily."))[0] is False
     assert is_spam(job(LONG_TEXT + " This is an MLM business."))[0] is True
+
+
+def test_internal_and_international_are_not_internships():
+    for title in ("Assistant Manager - Internal Audit", "Director, US International Tax Planning",
+                  "Software Engineer, Internal Identity", "AI Engineer, Internal Tools"):
+        assert not is_internship({"title": title, "job_type": "Full Time"}), title
+
+
+def test_real_internships_are_still_found():
+    for title in ("Data Analyst, Intern", "Software Engineering Interns", "Summer Internship 2027",
+                  "Graduate Trainee", "Apprentice Engineer", "Summer Analyst"):
+        assert is_internship({"title": title}), title
+    assert is_internship({"title": "Marketing", "job_type": "Internship"})
+    assert not is_internship({"title": "Marketing", "job_type": "International"})
 
 
 def test_student_mode_keeps_real_student_roles():

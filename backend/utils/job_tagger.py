@@ -184,13 +184,12 @@ def classify_work_mode(location: str, description: str = "") -> str:
 # ─────────────────────────────────────────────────────────────
 
 _INTERNSHIP_TITLE_KEYWORDS: list[str] = [
-    "intern",           # covers intern, internship, internal-intern, etc.
+    # "intern" itself is matched as a whole word below: it is inside "internal" and "international"
     "internship",
     "trainee",
     "apprentice",
     "summer analyst",
     "summer associate",
-    "summer intern",
     "graduate trainee",
     "fresher trainee",
     "industrial trainee",
@@ -217,7 +216,7 @@ _INTERNSHIP_DESC_SIGNALS: list[str] = [
 
 # Patterns for title-based detection when keyword is not a clean substring
 _INTERNSHIP_TITLE_PATTERNS: list[re.Pattern] = [
-    re.compile(r"\bintern(ship)?\b", re.IGNORECASE),
+    re.compile(r"\bintern(ship)?s?\b", re.IGNORECASE),
     re.compile(r"\btrainee\b", re.IGNORECASE),
     re.compile(r"\bapprentice(ship)?\b", re.IGNORECASE),
 ]
@@ -237,7 +236,7 @@ def is_internship(job: dict) -> bool:
     employment_type = (job.get("employment_type") or job.get("job_type") or "").lower()
 
     # Most reliable when present (comes from ATS structured data)
-    if "intern" in employment_type and "internal" not in employment_type:
+    if re.search(r"\bintern(ship)?s?\b", employment_type):
         return True
 
     # Title — strongest free-text signal
