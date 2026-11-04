@@ -3,6 +3,7 @@ from datetime import datetime
 import httpx
 import structlog
 from celery import shared_task
+from redis.exceptions import RedisError
 from sqlalchemy import text
 
 # Assuming AsyncSessionLocal is provided by db.connection
@@ -24,9 +25,13 @@ async def _check_url_liveness(client: httpx.AsyncClient, job_id: str, url: str) 
     Returns the new status: 'active', 'expired', or 'error'/'retry'.
     """
     try:
-        # Check cache first
+        # Check cache first. The cache is optional, so Redis errors must not stop link checks.
         cache_key = f"liveness:{url}"
-        cached_status = await redis_client.get(cache_key)
+        try:
+            cached_status = await redis_client.get(cache_key)
+        except RedisError as e:
+            logger.debug("liveness_cache_unavailable", error=str(e))
+            cached_status = None
         if cached_status:
             return cached_status
 
@@ -54,7 +59,10 @@ async def _check_url_liveness(client: httpx.AsyncClient, job_id: str, url: str) 
             
         # Cache the result for 4 hours
         if status in ("active", "expired"):
-            await redis_client.setex(cache_key, 14400, status)
+            try:
+                await redis_client.setex(cache_key, 14400, status)
+            except RedisError as e:
+                logger.debug("liveness_cache_unavailable", error=str(e))
             
         return status
         

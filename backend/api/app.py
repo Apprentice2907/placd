@@ -18,11 +18,9 @@ from slowapi.errors import RateLimitExceeded
 
 from sqlalchemy import text
 from db.connection import AsyncSessionLocal, engine
-import redis.asyncio as redis
+from utils.redis import redis_client
 
 # ── Real Redis Client ────────────────────────────────────────────────────────
-REDIS_URL = os.getenv("REDIS_URL", os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"))
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
 # ── Celery task import (graceful) ────────────────────────────────────────────
 try:
@@ -88,10 +86,17 @@ async def startup_event():
     results = await run_startup_checks()
     logger.info("startup_complete", checks=results)
 
+    # The link checker keeps long transactions open on jobs, so taking a lock here
+    # can stall. A schema problem should be logged, not stop the API from starting.
     from db.connection import engine
-    from db.retention import ensure_retention_schema
-    async with engine.begin() as conn:
-        await ensure_retention_schema(conn)
+    from db.retention import ensure_retention_schema, retention_schema_is_ready
+    try:
+        async with engine.begin() as conn:
+            if not await retention_schema_is_ready(conn):
+                await conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+                await ensure_retention_schema(conn)
+    except Exception as e:
+        logger.error("schema_update_failed", error=str(e))
     
     # Start the liveness background loop for 24/7 standalone operation
     try:

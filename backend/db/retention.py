@@ -178,6 +178,18 @@ def plan_deletions(
     return plan, scraper_recent
 
 
+async def retention_schema_is_ready(conn) -> bool:
+    """Reads the catalog only, so it never waits on a lock held on jobs."""
+    result = await conn.execute(text("""
+        SELECT to_regclass('job_reports') IS NOT NULL
+           AND EXISTS (
+               SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'jobs' AND column_name = 'duration_months'
+           )
+    """))
+    return bool(result.scalar())
+
+
 async def ensure_retention_schema(conn) -> None:
     await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS application_close_date DATE"))
     await conn.execute(text("""

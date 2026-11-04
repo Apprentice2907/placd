@@ -173,7 +173,8 @@ async def check_env_vars() -> None:
 async def run_startup_checks() -> dict:
     """
     Run all startup health checks and return a status dict.
-    Raises StartupCheckFailed on first failure — never falls back silently.
+    Raises StartupCheckFailed on first failure, except for Redis: it only holds
+    caches, so the API can run without it, and the problem is logged as a warning.
     """
     results = {}
 
@@ -186,8 +187,12 @@ async def run_startup_checks() -> dict:
     await check_pgvector()
     results["pgvector"] = "ok"
 
-    await check_redis()
-    results["redis"] = "ok"
+    try:
+        await check_redis()
+        results["redis"] = "ok"
+    except StartupCheckFailed as exc:
+        logger.warning("Starting without Redis: %s", exc)
+        results["redis"] = "unavailable"
 
     await check_typesense()
     results["typesense"] = "ok"

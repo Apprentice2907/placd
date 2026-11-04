@@ -18,6 +18,7 @@ import time
 from typing import Any, Callable, Optional
 
 import redis.asyncio as aioredis
+from utils.redis import create_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ _redis_client: Optional[aioredis.Redis] = None
 async def _get_redis() -> aioredis.Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+        _redis_client = create_redis_client(max_connections=10)
     return _redis_client
 
 

@@ -15,13 +15,14 @@ from datasketch import MinHash, MinHashLSH
 from sqlalchemy import text
 from db.connection import AsyncSessionLocal
 import redis.asyncio as redis
+from utils.redis import create_redis_client
 import os
 
 logger = logging.getLogger(__name__)
 
 # Basic async Redis client setup based on a REDIS_URL or default
 REDIS_URL = os.getenv("REDIS_URL", os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"))
-redis_client = redis.from_url(REDIS_URL)
+redis_client = create_redis_client(decode_responses=False, max_connections=5)
 
 class JobDeduplicator:
     def __init__(self, threshold: float = 0.85, num_perm: int = 128):
