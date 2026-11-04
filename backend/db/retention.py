@@ -41,6 +41,14 @@ _INDIA_LOCATION = re.compile(rf"\b({'|'.join(INDIA_PLACES)})\b")
 # Hard limit on stored jobs. Hidden jobs go first, then lowest-priority, longest-unseen ones.
 MAX_JOBS = 20000
 
+# Storage guard, kept well under Neon's free limit because Neon's own figure can
+# run higher than the database size seen here.
+STORAGE_TARGET_MB = 300
+STORAGE_COMPACT_MB = 350
+STORAGE_ALARM_MB = 400
+STORAGE_STOP_SCRAPE_MB = 450
+MIN_JOBS_KEPT = 5000
+
 # Age-based deletes only apply to sources whose scraper succeeded this recently.
 # Job dates can't prove this, because the link checker also updates last_verified_at.
 SCRAPER_RECENT_DAYS = 3
@@ -128,6 +136,7 @@ def plan_deletions(
     now: datetime,
     scrape_health: dict,
     max_jobs: int = MAX_JOBS,
+    force_limit: bool = False,
 ) -> tuple[dict, bool]:
     """
     Decide which jobs to delete. Returns ({reason: [ids]}, scraper_recent).
@@ -139,6 +148,7 @@ def plan_deletions(
     A source with no entry is no longer scraped, so its jobs age out normally.
     An 'expired' status is not grounds for deletion: it comes from automated link
     checks that can be wrong, and a later scrape can show the job is still open.
+    force_limit applies max_jobs even without a recent scrape, for storage emergencies.
     """
     rows = [dict(r, last_seen=_as_utc(r.get("last_seen"))) for r in rows]
     cutoff = now - timedelta(days=SCRAPER_RECENT_DAYS)
@@ -168,7 +178,7 @@ def plan_deletions(
         else:
             kept.append((tier, row))
 
-    if scraper_recent and len(kept) > max_jobs:
+    if (scraper_recent or force_limit) and len(kept) > max_jobs:
         oldest = datetime.min.replace(tzinfo=timezone.utc)
         # Newest first, then a stable sort by priority: best jobs stay at the front
         kept.sort(key=lambda item: item[1]["last_seen"] or oldest, reverse=True)
@@ -228,6 +238,47 @@ async def record_scrape_result(source: str, success: bool) -> None:
 async def _table_exists(conn, name: str) -> bool:
     result = await conn.execute(text("SELECT to_regclass(:name) IS NOT NULL"), {"name": f"public.{name}"})
     return bool(result.scalar())
+
+
+class StorageLimitError(RuntimeError):
+    """Fails the workflow run, so GitHub notifies the owner."""
+
+
+async def database_size_mb(conn) -> float:
+    result = await conn.execute(text("SELECT pg_database_size(current_database()) / 1048576.0"))
+    return float(result.scalar())
+
+
+async def _compact_jobs(engine) -> float:
+    async with engine.connect() as conn:
+        autocommit = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        await autocommit.execute(text("VACUUM FULL ANALYZE jobs"))
+        return await database_size_mb(autocommit)
+
+
+async def _protect_storage(engine) -> None:
+    """Shrinks the database automatically before it can reach Neon's limit."""
+    async with engine.connect() as conn:
+        size = await database_size_mb(conn)
+    if size < STORAGE_COMPACT_MB:
+        return
+
+    logger.warning(f"Storage guard: database is {size:.0f} MB, compacting")
+    size = await _compact_jobs(engine)
+
+    if size > STORAGE_TARGET_MB:
+        async with engine.connect() as conn:
+            job_count = (await conn.execute(text("SELECT COUNT(*) FROM jobs"))).scalar()
+        keep = max(MIN_JOBS_KEPT, int(job_count * STORAGE_TARGET_MB / size))
+        logger.warning(f"Storage guard: {size:.0f} MB after compacting, keeping the best {keep} jobs")
+        await _delete_old_jobs(engine, False, max_jobs=keep, force_limit=True)
+        size = await _compact_jobs(engine)
+
+    logger.info(f"Storage guard: database is now {size:.0f} MB")
+    if size >= STORAGE_ALARM_MB:
+        raise StorageLimitError(
+            f"Database is still {size:.0f} MB after cleanup, close to Neon's limit. Check it soon."
+        )
 
 
 async def _report_size(conn, label: str) -> None:
@@ -348,7 +399,7 @@ async def _trim_details(engine, dry_run: bool) -> None:
             )
 
 
-async def _delete_old_jobs(engine, dry_run: bool) -> None:
+async def _delete_old_jobs(engine, dry_run: bool, max_jobs: int = MAX_JOBS, force_limit: bool = False) -> None:
     async with engine.connect() as conn:
         result = await conn.execute(text("""
             SELECT id, source, company_name, status, is_internship, location,
@@ -362,7 +413,7 @@ async def _delete_old_jobs(engine, dry_run: bool) -> None:
         scrape_health = {r.source: r.last_success for r in result.fetchall()}
 
     now = datetime.now(timezone.utc)
-    plan, scraper_recent = plan_deletions(rows, now, scrape_health)
+    plan, scraper_recent = plan_deletions(rows, now, scrape_health, max_jobs, force_limit)
     logger.info(f"Delete plan: { {reason: len(ids) for reason, ids in plan.items()} } of {len(rows)} jobs")
     if not scraper_recent:
         logger.warning("No recent successful scrape recorded, so age-based deletes were skipped.")
@@ -404,8 +455,8 @@ async def run_cleanup(dry_run: bool = False, trim_only: bool = False, compact: b
 
         await _trim_details(engine, dry_run)
         await _fix_internship_labels(engine, dry_run)
-        await _refresh_safety_labels(engine, dry_run)
         if not trim_only:
+            await _refresh_safety_labels(engine, dry_run)
             await _delete_old_jobs(engine, dry_run)
 
         if not dry_run:
@@ -416,5 +467,7 @@ async def run_cleanup(dry_run: bool = False, trim_only: bool = False, compact: b
                 autocommit = await conn.execution_options(isolation_level="AUTOCOMMIT")
                 await autocommit.execute(text(vacuum))
                 await _report_size(autocommit, "after")
+            if not trim_only:
+                await _protect_storage(engine)
     finally:
         await engine.dispose()

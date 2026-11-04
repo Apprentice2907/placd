@@ -65,6 +65,7 @@ jobs:
 
       # Runs after scraping so jobs that are still listed count as recently seen
       - name: Delete old jobs
+        if: ${{ !cancelled() }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           TYPESENSE_ENABLED: 'false'

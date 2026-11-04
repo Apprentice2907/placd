@@ -126,9 +126,14 @@ async def run_scraper_safe(name, func, *args, **kwargs):
 
 async def run_scrape(target_source: str = None):
     from db.connection import engine
-    from db.retention import ensure_retention_schema
+    from db.retention import STORAGE_STOP_SCRAPE_MB, database_size_mb, ensure_retention_schema
     async with engine.begin() as conn:
         await ensure_retention_schema(conn)
+        size = await database_size_mb(conn)
+    if size >= STORAGE_STOP_SCRAPE_MB:
+        # The cleanup step that follows frees space, so this must not fail the run yet
+        log.error(f"Skipping scrape: database is {size:.0f} MB, too close to Neon's limit")
+        return
 
     scrapers = {}
     

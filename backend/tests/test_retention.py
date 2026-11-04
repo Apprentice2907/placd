@@ -155,6 +155,15 @@ def test_over_limit_prefers_internships_and_india_over_other_jobs():
     assert sorted(plan["over_limit"]) == ["canva", "other"]
 
 
+def test_storage_emergency_applies_the_limit_without_a_recent_scrape():
+    rows = [job("visible", days_ago=69), job("hidden", days_ago=69, status="expired")]
+    plan, scraper_recent = plan_deletions(rows, NOW, {}, max_jobs=1)
+    assert scraper_recent is False and plan["over_limit"] == []
+
+    plan, _ = plan_deletions(rows, NOW, {}, max_jobs=1, force_limit=True)
+    assert plan["over_limit"] == ["hidden"]
+
+
 def test_link_checks_alone_do_not_count_as_a_scrape():
     rows = [job("checked_today", days_ago=0), job("old", days_ago=69)]
     plan, scraper_recent = plan_deletions(rows, NOW, {"greenhouse": NOW - timedelta(days=30)})

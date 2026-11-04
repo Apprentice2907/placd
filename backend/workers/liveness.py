@@ -18,6 +18,8 @@ from utils.redis import redis_client
 logger = structlog.get_logger(__name__)
 
 USER_AGENT = "Mozilla/5.0 (compatible; PlacdBot/1.0; +https://placd.in/bot)"
+LIVENESS_PASS_SECONDS = 6 * 3600
+FRESHNESS_MIN_CHANGE = 0.05
 
 async def _check_url_liveness(client: httpx.AsyncClient, job_id: str, url: str) -> str:
     """
@@ -120,9 +122,9 @@ async def _daily_liveness_sweep():
         SELECT id, apply_url 
         FROM jobs 
         WHERE status = 'active' 
-          AND last_verified_at < NOW() - INTERVAL '23 hours'
+          AND last_verified_at < NOW() - INTERVAL '3 days'
         ORDER BY last_verified_at ASC
-        LIMIT 5000
+        LIMIT 1000
     """)
     
     async with AsyncSessionLocal() as session:
@@ -211,8 +213,10 @@ async def _reactivate_reopened_jobs():
     query = text("""
         SELECT id, apply_url 
         FROM jobs 
-        WHERE status = 'expired' 
+        WHERE status = 'expired'
           AND expires_at < NOW() - INTERVAL '3 days'
+        ORDER BY expires_at ASC
+        LIMIT 200
     """)
     
     async with AsyncSessionLocal() as session:
@@ -260,8 +264,8 @@ async def _update_freshness_scores():
     from utils.freshness import freshness_score
     
     query = text("""
-        SELECT id, created_at, source 
-        FROM jobs 
+        SELECT id, created_at, source, freshness_score
+        FROM jobs
         WHERE status = 'active'
     """)
     
@@ -274,7 +278,9 @@ async def _update_freshness_scores():
         for job in jobs:
             # updated_at isn't explicitly used currently, use created_at
             score = freshness_score(job.created_at, job.created_at, job.source)
-            updates.append({"id": job.id, "freshness_score": score})
+            # Rewriting a row costs Neon storage and compute, so small changes wait
+            if job.freshness_score is None or abs(score - job.freshness_score) >= FRESHNESS_MIN_CHANGE:
+                updates.append({"id": job.id, "freshness_score": score})
             
         if not updates:
             return
@@ -324,6 +330,6 @@ async def liveness_background_loop():
         except Exception as e:
             logger.error("liveness_background_loop_error", error=str(e))
         
-        # Sleep for 1 hour before running the sweep again
-        await asyncio.sleep(3600)
+        # Each pass wakes Neon, and its free plan limits compute hours
+        await asyncio.sleep(LIVENESS_PASS_SECONDS)
 
