@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     scam_flags TEXT[] DEFAULT '{}',
     stipend_text TEXT,
     duration_months INT,
+    applicants INT,
+    posted_at TIMESTAMPTZ,
     last_verified_at TIMESTAMPTZ DEFAULT NOW(),
     last_active_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ,

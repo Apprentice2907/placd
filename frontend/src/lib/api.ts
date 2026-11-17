@@ -37,6 +37,12 @@ export interface Job {
   trust_score?: number;
   company_tier?: number;
   duration_months?: number | null;
+  applicants?: number | null;
+  chance?: {
+    level: 'strong' | 'good' | 'stretch';
+    label: string;
+    reasons: string[];
+  };
   trust?: {
     verified: boolean;
     reasons: string[];
@@ -87,6 +93,9 @@ export interface SearchFilters {
   verified_only?: boolean;
   paid_only?: boolean;
   max_duration_months?: number;
+  interest?: string;
+  include_related?: boolean;
+  small_companies?: boolean;
 }
 
 export interface CalendarEvent {

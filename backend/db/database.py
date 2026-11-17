@@ -21,6 +21,7 @@ from db.connection import AsyncSessionLocal, engine
 
 from utils.spam_filter import is_spam
 from utils.scam_check import check_job
+from utils.job_details import clean_skills, parse_posted_at
 from utils.company_trust import calculate_trust_score, get_company_tier, TRUST_SCORE_WEIGHTS
 from utils.job_tagger import tag_job
 from db.retention import minimize_description, parse_deadline
@@ -188,7 +189,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             trust_score, is_spam, spam_reason, company_tier,
             is_faang, is_internship, is_hybrid, work_mode, is_student_eligible,
             company_name, company_logo_url, company_domain, application_close_date,
-            scam_flags, stipend_text, duration_months
+            scam_flags, stipend_text, duration_months, tags, applicants, posted_at
         ) VALUES (
             :company_id, :external_id, :title, :description, :apply_url, :source,
             :job_type, :location, :is_remote, :status,
@@ -196,7 +197,7 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             :trust_score, :is_spam, :spam_reason, :company_tier,
             :is_faang, :is_internship, :is_hybrid, :work_mode, :is_student_eligible,
             :company_name, :company_logo_url, :company_domain, :application_close_date,
-            :scam_flags, :stipend_text, :duration_months
+            :scam_flags, :stipend_text, :duration_months, :tags, :applicants, :posted_at
         )
         ON CONFLICT (url_hash) DO UPDATE SET
             company_id       = COALESCE(EXCLUDED.company_id, jobs.company_id),
@@ -223,7 +224,10 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
             application_close_date = COALESCE(EXCLUDED.application_close_date, jobs.application_close_date),
             scam_flags       = EXCLUDED.scam_flags,
             stipend_text     = COALESCE(EXCLUDED.stipend_text, jobs.stipend_text),
-            duration_months  = COALESCE(EXCLUDED.duration_months, jobs.duration_months)
+            duration_months  = COALESCE(EXCLUDED.duration_months, jobs.duration_months),
+            tags             = COALESCE(EXCLUDED.tags, jobs.tags),
+            applicants       = COALESCE(EXCLUDED.applicants, jobs.applicants),
+            posted_at        = COALESCE(jobs.posted_at, EXCLUDED.posted_at)
         -- Rewriting every job on every scrape bloats the table and its indexes
         WHERE jobs.status <> 'active'
            OR jobs.last_verified_at IS NULL
@@ -303,6 +307,9 @@ async def async_save_jobs(jobs: list, source: str = None, company_id: str = None
                 "scam_flags":      job.get("scam_flags", []),
                 "stipend_text":    job.get("stipend_text"),
                 "duration_months": job.get("duration_months"),
+                "tags":            clean_skills(job.get("skills")),
+                "applicants":      job.get("applicants"),
+                "posted_at":       parse_posted_at(job, job_source),
             })
             row = result.fetchone()
             if row:

@@ -1,6 +1,10 @@
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from utils.job_tagger import INDIA_PLACES
 from utils.scam_check import DIRECT_SOURCES, VERIFIED_WITHIN_DAYS, describe_trust
+from utils.matching import (
+    BIG_COMPANY_SOURCES, INTERESTS, WELL_KNOWN_COMPANIES, describe_chance,
+    interest_level_sql, interest_params, well_known_sql,
+)
 from typing import Optional
 import structlog
 from search.typesense_sync import typesense_sync
@@ -13,9 +17,10 @@ router = APIRouter(prefix="/api/v2/jobs")
 INDIA_LOCATIONS = rf"\m({'|'.join(INDIA_PLACES)})\M"
 
 
-def _map_job_row(r) -> dict:
+def _map_job_row(r, interest: Optional[str] = None) -> dict:
     """Convert a DB row to a clean job dict, removing heavy/internal fields."""
     d = dict(r._mapping)
+    d["chance"] = describe_chance(d, interest)
     # Remove the heavy embedding vector
     d.pop("description_embedding", None)
     d.pop("search_vector", None)
@@ -49,8 +54,11 @@ async def search_jobs_v2(
     verified_only: Optional[bool] = None,
     paid_only: Optional[bool] = None,
     max_duration_months: Optional[int] = Query(None, ge=1),
+    interest: Optional[str] = Query(None, description="ai|data|web|mobile|cloud|security|design"),
+    include_related: Optional[bool] = None,
+    small_companies: Optional[bool] = None,
     status: str = "active",
-    sort: Optional[str] = Query("newest", description="newest|oldest|relevance"),
+    sort: Optional[str] = Query("newest", description="newest|oldest|recent|best"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
 ):
@@ -93,7 +101,22 @@ async def search_jobs_v2(
     from sqlalchemy import text as sa_text
 
     where_parts = ["status = :status", "is_spam = FALSE", f"trust_score >= {trust_min}"]
-    params: dict = {"limit": per_page, "offset": (page - 1) * per_page, "status": status}
+    params: dict = {
+        "limit": per_page, "offset": (page - 1) * per_page, "status": status,
+        "big_sources": BIG_COMPANY_SOURCES, "well_known_companies": WELL_KNOWN_COMPANIES,
+    }
+
+    if interest and interest not in INTERESTS:
+        raise HTTPException(status_code=422, detail="Unknown interest")
+    if interest:
+        level_sql = interest_level_sql()
+        where_parts.append(f"{level_sql} >= :min_interest_level")
+        params.update(interest_params(interest), min_interest_level=1 if include_related else 2)
+    else:
+        level_sql = "0"
+
+    if small_companies:
+        where_parts.append(f"NOT {well_known_sql()}")
 
     if country and country.lower() == "india":
         where_parts.append("location ~* :india_locations")
@@ -185,6 +208,12 @@ async def search_jobs_v2(
         order_sql = "ORDER BY created_at ASC"
     elif sort == "recent":
         order_sql = "ORDER BY created_at DESC"
+    elif sort == "best":
+        # Closest interest first, then smaller companies, then newest
+        order_sql = (
+            f"ORDER BY {level_sql} DESC, {well_known_sql()} ASC, "
+            "COALESCE(posted_at, created_at) DESC"
+        )
     else:
         order_sql = "ORDER BY trust_score DESC, created_at DESC"
 
@@ -206,7 +235,8 @@ async def search_jobs_v2(
                        experience_level, source, status, trust_score,
                        is_faang, is_internship, is_hybrid, work_mode,
                        freshness_score, last_verified_at, scam_flags,
-                       stipend_text, duration_months
+                       stipend_text, duration_months, applicants, posted_at,
+                       {level_sql} AS interest_level, {well_known_sql()} AS well_known
                 FROM jobs WHERE {where_sql}
                 {order_sql}
                 LIMIT :limit OFFSET :offset
@@ -217,7 +247,7 @@ async def search_jobs_v2(
         rows = rows_res.fetchall()
 
     return {
-        "jobs": [_map_job_row(r) for r in rows],
+        "jobs": [_map_job_row(r, interest) for r in rows],
         "total": total,
         "page": page,
         "per_page": per_page,

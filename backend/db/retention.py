@@ -194,7 +194,7 @@ async def retention_schema_is_ready(conn) -> bool:
         SELECT to_regclass('job_reports') IS NOT NULL
            AND EXISTS (
                SELECT 1 FROM information_schema.columns
-               WHERE table_name = 'jobs' AND column_name = 'duration_months'
+               WHERE table_name = 'jobs' AND column_name = 'posted_at'
            )
     """))
     return bool(result.scalar())
@@ -212,6 +212,8 @@ async def ensure_retention_schema(conn) -> None:
     await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scam_flags TEXT[] DEFAULT '{}'"))
     await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stipend_text TEXT"))
     await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duration_months INT"))
+    await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS applicants INT"))
+    await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ"))
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS job_reports (
             job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,

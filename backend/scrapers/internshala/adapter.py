@@ -167,6 +167,8 @@ class InternshalaAdapter(UnifiedAdapter):
                     match = re.search(r'(\d+)', app_el.get_text())
                     if match:
                         job["applicants"] = int(match.group(1))
+                    elif "early applicant" in app_el.get_text().lower():
+                        job["applicants"] = 0
                         
                 # Date posted (Internshala often says 'Posted 3 weeks ago' in a container)
                 status_el = soup.select_one(".status-container .status")

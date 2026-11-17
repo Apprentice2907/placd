@@ -184,6 +184,19 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
 
       {/* Tags & Student Badge */}
       <div className="mt-[12px] flex flex-wrap gap-[6px]">
+        {job.chance && (
+          <span
+            title={job.chance.reasons.join('. ')}
+            className={cn(
+              "px-[12px] py-[4px] text-[12px] font-[700] rounded-[9999px]",
+              job.chance.level === 'strong' && "bg-[#166534] text-white",
+              job.chance.level === 'good' && "bg-[#DBEAFE] text-[#1E3A8A]",
+              job.chance.level === 'stretch' && "bg-[#F3E8FF] text-[#6B21A8]"
+            )}
+          >
+            {job.chance.label}
+          </span>
+        )}
         {job.trust?.verified && (
           <span
             title={job.trust.reasons.join('. ')}
@@ -216,6 +229,12 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
           </span>
         ))}
       </div>
+
+      {job.chance && job.chance.reasons.length > 0 && (
+        <p className="mt-[8px] text-[12px] text-[#666666] leading-[1.5]">
+          {job.chance.reasons.join(' · ')}
+        </p>
+      )}
 
       <div className="flex-1" />
 
