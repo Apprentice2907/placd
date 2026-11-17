@@ -28,6 +28,13 @@ def test_new_post_is_a_strong_chance_even_without_applicant_count():
     assert "Posted 2 days ago" in result["reasons"]
 
 
+def test_recently_found_is_not_the_same_as_recently_posted():
+    # Jobs re-added after cleanup get a new found date, so it must not raise the label
+    result = chance(well_known=False, created_at=NOW - timedelta(days=1))
+    assert result["level"] == "good"
+    assert "Found by Placd 1 day ago" in result["reasons"]
+
+
 def test_older_busy_post_is_a_good_fit():
     result = chance(well_known=False, applicants=400, posted_at=NOW - timedelta(days=10))
     assert result["level"] == "good"

@@ -7,7 +7,7 @@ job's skills. Titles that only mention a field in passing ("AI Content Writing",
 
 Chance labels describe competition, not a prediction:
   - Stretch: a well-known company, where many people apply
-  - Strong chance: a smaller company with few applicants so far, or a new post
+  - Strong chance: a smaller company with few applicants so far, or posted in the last few days
   - Good fit: everything else
 """
 
@@ -62,6 +62,8 @@ NOT_TECH_TITLES = (
     r"marketing|\msales\M|content|writ|video|film|creator|editor|influencer|social media|telecall"
     r"|business development|human resources|\mhr\M|recruit|talent acquisition|annotation|data entry"
     r"|campus ambassador|customer (service|support)|fundraising|lead generation"
+    r"|consult|search engine optimi|\mseo\M|interior|trainer|teach|tutor|\mexecutive\M|growth"
+    r"|subject matter expert|back ?end operations"
 )
 
 BIG_COMPANY_SOURCES = ["google", "microsoft", "amazon", "apple", "meta"]
@@ -136,7 +138,8 @@ def describe_chance(job: dict, interest: Optional[str] = None, now: Optional[dat
     else:
         reasons.append("Smaller company or startup")
         few_applicants = applicants is not None and applicants <= STRONG_CHANCE_MAX_APPLICANTS
-        is_new = age_days is not None and age_days <= STRONG_CHANCE_MAX_AGE_DAYS
+        # Only a real posting date counts: jobs re-added after cleanup look newly found
+        is_new = posted is not None and age_days <= STRONG_CHANCE_MAX_AGE_DAYS
         if applicants == 0:
             reasons.append("Be an early applicant")
         elif applicants is not None:
